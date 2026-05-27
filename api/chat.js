@@ -1,10 +1,9 @@
-// api/chat.js — Hauku backend (Vercel serverless)
+// api/chat.js — Hauku backend (Vercel serverless) — Gemini API
 
 import { extractFilters, filterProducts, buildProductContext } from '../lib/filters.js';
 import { getProducts } from '../lib/shopify.js';
 
 export default async function handler(req, res) {
-  // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -28,43 +27,43 @@ export default async function handler(req, res) {
     const matched = hasFilters ? filterProducts(products, filters) : [];
     const productCtx = hasFilters ? buildProductContext(matched, filters) : '';
 
-    // 3. Rakenna viestit Claudelle
-    const claudeMessages = messages.map((m, i) => ({
-      role: m.role,
-      content: i === messages.length - 1 && m.role === 'user' && productCtx
+    // 3. Rakenna viestit Geminille
+    const systemPrompt = process.env.SYSTEM_PROMPT || '';
+    const geminiMessages = messages.map((m, i) => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: i === messages.length - 1 && m.role === 'user' && productCtx
         ? m.content + productCtx
-        : m.content,
+        : m.content }]
     }));
 
-    // 4. Kutsu Claude API
-    const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+    // 4. Kutsu Gemini API
+    const apiKey = process.env.GEMINI_API_KEY;
+    const model = 'gemini-2.5-flash-lite';
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+    const geminiRes = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: process.env.CLAUDE_MODEL || 'claude-sonnet-4-6',
-        max_tokens: 1024,
-        system: process.env.SYSTEM_PROMPT || '',
-        messages: claudeMessages,
+        system_instruction: systemPrompt ? { parts: [{ text: systemPrompt }] } : undefined,
+        contents: geminiMessages,
+        generationConfig: { maxOutputTokens: 1024, temperature: 0.7 }
       }),
     });
 
-    if (!anthropicRes.ok) {
-      const err = await anthropicRes.text();
-      console.error('Claude API error:', err);
-      return res.status(502).json({ error: 'AI service error' });
+    if (!geminiRes.ok) {
+      const err = await geminiRes.text();
+      console.error('Gemini API error:', err);
+      return res.status(502).json({ error: `Gemini error: ${geminiRes.status}` });
     }
 
-    const data = await anthropicRes.json();
-    const reply = data.content?.find(b => b.type === 'text')?.text ?? 'Yritä uudelleen.';
+    const data = await geminiRes.json();
+    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'Yritä uudelleen.';
 
     return res.status(200).json({ reply });
 
   } catch (err) {
-    console.error('Handler error:', err);
-    return res.status(500).json({ error: 'Internal error' });
+    console.error('Handler error:', err.message);
+    return res.status(500).json({ error: err.message });
   }
 }
