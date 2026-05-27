@@ -50,6 +50,18 @@ export default async function handler(req, res) {
     );
     const matched = hasFilters ? filterProducts(products, filters) : [];
     const productCtx = hasFilters ? buildProductContext(matched, filters) : '';
+    
+    console.log('brand:', filters.brand, 'hasFilters:', hasFilters, 'matched:', matched.length);
+    
+    // Jos ei tuotekontekstia - lisää vahva kielto suoraan user-viestiin
+    if (!productCtx) {
+      const lastMsg = geminiMessages[geminiMessages.length - 1];
+      if (lastMsg && lastMsg.role === 'user') {
+        lastMsg.parts[0].text += '\n\n[STOP: Älä suosittele tuotteita. Kysy vain koiran rotu, ikä ja tarpeet.]';
+      }
+    }
+    
+    console.log('brand:', filters.brand, 'hasFilters:', hasFilters, 'matched:', matched.length);
 
     // 4. Rakenna viestit Geminille
     const basePrompt = HARDCODED_PROMPT || process.env.SYSTEM_PROMPT || '';
