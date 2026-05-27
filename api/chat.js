@@ -53,21 +53,16 @@ export default async function handler(req, res) {
     
     console.log('brand:', filters.brand, 'hasFilters:', hasFilters, 'matched:', matched.length);
     
-    // Jos ei tuotekontekstia - lisää vahva kielto suoraan user-viestiin
-    if (!productCtx) {
-      const lastMsg = geminiMessages[geminiMessages.length - 1];
-      if (lastMsg && lastMsg.role === 'user') {
-        lastMsg.parts[0].text += '\n\n[STOP: Älä suosittele tuotteita. Kysy vain koiran rotu, ikä ja tarpeet.]';
-      }
-    }
-    
     console.log('brand:', filters.brand, 'hasFilters:', hasFilters, 'matched:', matched.length);
 
+    // 4. Jos ei filttereitä eikä tuotekontekstia, käytä Geminiä vain keskusteluun
+    // Lisää ohje olla suosittelematta tuotteita
+    const noProductInstruction = !productCtx ? 
+      '\n\nTÄRKEÄ OHJE: Tässä viestissä ei ole <tuotteet_tietokannasta>-osiota. Et tiedä mitä tuotteita on valikoimassa. ÄLÄ mainitse yhtään tuotteen nimeä, merkkiä tai linkkiä. Kysy vain lisätietoja koirasta (rotu, ikä, tarpeet).' : '';
+
     // 4. Rakenna viestit Geminille
-    const basePrompt = HARDCODED_PROMPT || process.env.SYSTEM_PROMPT || '';
-    const noProductsWarning = !productCtx ? 
-      '\n\n[JÄRJESTELMÄ: Tässä viestissä ei ole tuotedataa. ÄLÄ mainitse, suosittele tai keksi yhtään tuotteen nimeä, merkkiä tai linkkiä. Kysy vain lisätietoja koirasta.]' : '';
-    const systemPrompt = basePrompt + noProductsWarning;
+    const basePrompt = (HARDCODED_PROMPT || process.env.SYSTEM_PROMPT || '') + noProductInstruction;
+    const systemPrompt = basePrompt;
     const geminiMessages = messages.map((m, i) => ({
       role: m.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: i === messages.length - 1 && m.role === 'user' && productCtx
