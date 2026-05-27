@@ -3,6 +3,10 @@
 import { extractFilters, filterProducts, buildProductContext } from '../lib/filters.js';
 import { getProducts } from '../lib/shopify.js';
 
+function norm(s) {
+  return s.toLowerCase().replace(/[^a-zäöå ]/g, ' ').replace(/ +/g, ' ').trim();
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -20,6 +24,21 @@ export default async function handler(req, res) {
 
     // 2. Tunnista filtterit
     const filters = extractFilters(messages);
+
+    // 3. Bränditunnistus tuotelistan perusteella
+    if (!filters.brand && products.length > 0) {
+      const vendors = [...new Set(products.map(p => norm(p.m || '')).filter(v => v.length >= 3))];
+      vendors.sort((a, b) => b.length - a.length); // pisin ensin
+      const allUserText = norm(messages.map(m => m.content).join(' '));
+      for (const vendor of vendors) {
+        // Suora täsmäys tai ilman välilyöntejä
+        if (allUserText.includes(vendor) || allUserText.replace(/ /g,'').includes(vendor.replace(/ /g,''))) {
+          filters.brand = vendor;
+          break;
+        }
+      }
+    }
+
     const hasFilters = !!(
       filters.excl.length || filters.want.length ||
       filters.brand || filters.age || filters.size || filters.specialDiets?.length
@@ -27,7 +46,7 @@ export default async function handler(req, res) {
     const matched = hasFilters ? filterProducts(products, filters) : [];
     const productCtx = hasFilters ? buildProductContext(matched, filters) : '';
 
-    // 3. Rakenna viestit Geminille
+    // 4. Rakenna viestit Geminille
     const systemPrompt = process.env.SYSTEM_PROMPT || '';
     const geminiMessages = messages.map((m, i) => ({
       role: m.role === 'assistant' ? 'model' : 'user',
@@ -36,7 +55,7 @@ export default async function handler(req, res) {
         : m.content }]
     }));
 
-    // 4. Kutsu Gemini API
+    // 5. Kutsu Gemini API
     const apiKey = process.env.GEMINI_API_KEY;
     const model = 'gemini-2.5-flash-lite';
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
