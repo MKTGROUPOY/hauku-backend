@@ -28,14 +28,17 @@ export default async function handler(req, res) {
 
     // 3. Bränditunnistus tuotelistan perusteella
     if (!filters.brand && products.length > 0) {
-      const vendors = [...new Set(products.map(p => norm(p.m || '')).filter(v => v.length >= 3))];
-      vendors.sort((a, b) => b.length - a.length); // pisin ensin
-      const allUserText = norm(messages.map(m => m.content).join(' '));
+      // Mustat lista - nämä sanat eivät ole brändejä
+      const BLACKLIST = ['hauku','ruokakoiralle','koiralle','koira','ruoka','peten','zooplus','haukkula'];
+      const vendors = [...new Set(products.map(p => norm(p.m || '')).filter(v => v.length >= 4 && !BLACKLIST.includes(v)))];
+      vendors.sort((a, b) => b.length - a.length);
+      // Hae vain USER-viesteistä, ei botin omista viesteistä
+      const userOnlyText = norm(messages.filter(m => m.role === 'user').map(m => m.content).join(' '));
+      console.log('userOnlyText:', userOnlyText.substring(0, 80));
       for (const vendor of vendors) {
-        if (vendor.length < 4) continue;
-        // Substring-haku – kattaa myös taivutusmuodot (ydolo -> ydolon, ydoloa)
-        if (allUserText.includes(vendor)) {
+        if (userOnlyText.includes(vendor)) {
           filters.brand = vendor;
+          console.log('Brand found:', vendor);
           break;
         }
       }
