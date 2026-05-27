@@ -40,8 +40,9 @@ export default async function handler(req, res) {
       }
     }
 
-    console.log('filters:', JSON.stringify(filters));
-    console.log('products count:', products.length);
+    console.log('filters:', JSON.stringify({brand:filters.brand,excl:filters.excl,want:filters.want}));
+    console.log('hasFilters will be:', !!(filters.excl.length||filters.want.length||filters.brand||filters.age||filters.size));
+    console.log('allUserText sample:', norm(messages.map(m=>m.content).join(' ')).substring(0,100));
     const hasFilters = !!(
       filters.excl.length || filters.want.length ||
       filters.brand || filters.age || filters.size || filters.specialDiets?.length
