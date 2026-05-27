@@ -31,8 +31,10 @@ export default async function handler(req, res) {
       vendors.sort((a, b) => b.length - a.length); // pisin ensin
       const allUserText = norm(messages.map(m => m.content).join(' '));
       for (const vendor of vendors) {
-        // Suora täsmäys tai ilman välilyöntejä
-        if (allUserText.includes(vendor) || allUserText.replace(/ /g,'').includes(vendor.replace(/ /g,''))) {
+        if (vendor.length < 4) continue;
+        // Täsmäytä vain kokonaisena sanana (ei osana toista sanaa)
+        const re = new RegExp('(?:^|\\s)' + vendor.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:\\s|$)');
+        if (re.test(allUserText)) {
           filters.brand = vendor;
           break;
         }
