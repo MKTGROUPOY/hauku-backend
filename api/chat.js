@@ -41,6 +41,8 @@ export default async function handler(req, res) {
       }
     }
 
+    console.log('filters:', JSON.stringify(filters));
+    console.log('products count:', products.length);
     const hasFilters = !!(
       filters.excl.length || filters.want.length ||
       filters.brand || filters.age || filters.size || filters.specialDiets?.length
