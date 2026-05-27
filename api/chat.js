@@ -51,7 +51,8 @@ export default async function handler(req, res) {
     const productCtx = hasFilters ? buildProductContext(matched, filters) : '';
 
     // 4. Rakenna viestit Geminille
-    const systemPrompt = process.env.SYSTEM_PROMPT || '';
+    const systemPrompt = (process.env.SYSTEM_PROMPT || '') + 
+      '\n\nKRIITTINEN SÄÄNTÖ: Jos viestissä EI ole <tuotteet_tietokannasta>-osiota, ÄLÄ suosittele yhtään tuotetta nimeltä. Sano vain: kerro lisää koirasta niin etsin sopivia vaihtoehtoja.';
     const geminiMessages = messages.map((m, i) => ({
       role: m.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: i === messages.length - 1 && m.role === 'user' && productCtx
