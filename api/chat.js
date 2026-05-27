@@ -2,6 +2,7 @@
 
 import { extractFilters, filterProducts, buildProductContext } from '../lib/filters.js';
 import { getProducts } from '../lib/shopify.js';
+import { SYSTEM_PROMPT as HARDCODED_PROMPT } from '../lib/system-prompt.js';
 
 function norm(s) {
   return s.toLowerCase().replace(/[^a-zäöå ]/g, ' ').replace(/ +/g, ' ').trim();
@@ -51,7 +52,7 @@ export default async function handler(req, res) {
     const productCtx = hasFilters ? buildProductContext(matched, filters) : '';
 
     // 4. Rakenna viestit Geminille
-    const basePrompt = process.env.SYSTEM_PROMPT || '';
+    const basePrompt = HARDCODED_PROMPT || process.env.SYSTEM_PROMPT || '';
     const noProductsWarning = !productCtx ? 
       '\n\n[JÄRJESTELMÄ: Tässä viestissä ei ole tuotedataa. ÄLÄ mainitse, suosittele tai keksi yhtään tuotteen nimeä, merkkiä tai linkkiä. Kysy vain lisätietoja koirasta.]' : '';
     const systemPrompt = basePrompt + noProductsWarning;
