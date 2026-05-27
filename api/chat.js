@@ -32,9 +32,8 @@ export default async function handler(req, res) {
       const allUserText = norm(messages.map(m => m.content).join(' '));
       for (const vendor of vendors) {
         if (vendor.length < 4) continue;
-        // Täsmäytä vain kokonaisena sanana (ei osana toista sanaa)
-        const re = new RegExp('(?:^|\\s)' + vendor.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:\\s|$)');
-        if (re.test(allUserText)) {
+        // Substring-haku – kattaa myös taivutusmuodot (ydolo -> ydolon, ydoloa)
+        if (allUserText.includes(vendor)) {
           filters.brand = vendor;
           break;
         }
