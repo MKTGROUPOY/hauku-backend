@@ -4,17 +4,8 @@ export default async function handler(req, res) {
   const token = process.env.SHOPIFY_PUBLIC_TOKEN;
 
   const query = `{
-    products(first: 1, query: "title:\\"Grandorf Fresh Adult Medium\\"") {
-      edges {
-        node {
-          title
-          metafields(identifiers: [
-            {namespace:"custom", key:"lisaaineet"}
-            {namespace:"custom", key:"ravintoaineet"}
-            {namespace:"custom", key:"ainesosat"}
-          ]) { key value }
-        }
-      }
+    products(first: 10, query: "vendor:GRANDORF") {
+      edges { node { title vendor } }
     }
   }`;
 
