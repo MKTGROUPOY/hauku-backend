@@ -98,6 +98,11 @@ export default async function handler(req, res) {
     const lastUserIdx = filteredMessages.map(m => m.role).lastIndexOf('user');
     const msgsForGemini = filteredMessages.slice(0, lastUserIdx + 1);
     
+    // Jos ei ole user-viestejä, palauta tyhjä vastaus
+    if (msgsForGemini.length === 0 || !msgsForGemini.some(m => m.role === 'user')) {
+      return res.status(200).json({ reply: 'Moikka! Miten voin auttaa koirasi kanssa?' });
+    }
+
     const geminiMessages = msgsForGemini.map((m, i) => ({
       role: m.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: i === msgsForGemini.length - 1 && m.role === 'user' && productCtx
