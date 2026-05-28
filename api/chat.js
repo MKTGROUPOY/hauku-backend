@@ -26,6 +26,20 @@ export default async function handler(req, res) {
     // 2. Tunnista filtterit
     const filters = extractFilters(messages);
 
+    // 2b. Tarkka tuotenimiehaku - priorisoi täsmäävä tuote
+    const userText = norm(messages.filter(m => m.role === 'user').map(m => m.content).join(' '));
+    let exactProduct = null;
+    if (products.length > 0) {
+      // Etsi tuote jonka nimi löytyy käyttäjän viestistä (min 10 merkkiä)
+      for (const p of products) {
+        const pNorm = norm(p.n || '');
+        if (pNorm.length >= 10 && userText.includes(pNorm)) {
+          exactProduct = p;
+          break;
+        }
+      }
+    }
+
     // 3. Bränditunnistus tuotelistan perusteella
     if (!filters.brand && products.length > 0) {
       // Mustat lista - nämä sanat eivät ole brändejä
@@ -51,8 +65,15 @@ export default async function handler(req, res) {
       filters.excl.length || filters.want.length ||
       filters.brand || filters.age || filters.size || filters.specialDiets?.length
     );
-    const matched = hasFilters ? filterProducts(products, filters) : [];
-    const productCtx = hasFilters ? buildProductContext(matched, filters) : '';
+    let matched = hasFilters ? filterProducts(products, filters) : [];
+    // Jos löytyi tarkka tuote, varmista että se on kontekstissa
+    if (exactProduct && !matched.find(p => p.n === exactProduct.n)) {
+      matched = [exactProduct, ...matched.slice(0, 4)];
+    } else if (exactProduct) {
+      // Nosta tarkka tuote listan ensimmäiseksi
+      matched = [exactProduct, ...matched.filter(p => p.n !== exactProduct.n).slice(0, 4)];
+    }
+    const productCtx = (hasFilters || exactProduct) ? buildProductContext(matched, filters) : '';
     
     console.log('brand:', filters.brand, 'hasFilters:', hasFilters, 'matched:', matched.length);
     
@@ -90,8 +111,8 @@ export default async function handler(req, res) {
 
     if (!geminiRes.ok) {
       const err = await geminiRes.text();
-      console.error('Gemini API error:', err);
-      return res.status(502).json({ error: `Gemini error: ${geminiRes.status}` });
+      console.error('Gemini API error:', geminiRes.status, err.substring(0, 500));
+      return res.status(502).json({ error: `Gemini error: ${geminiRes.status} - ${err.substring(0, 200)}` });
     }
 
     const data = await geminiRes.json();
