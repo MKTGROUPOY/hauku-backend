@@ -86,10 +86,21 @@ export default async function handler(req, res) {
 
     // 4. Rakenna viestit Geminille
     const basePrompt = (HARDCODED_PROMPT || process.env.SYSTEM_PROMPT || '') + noProductInstruction;
+    // Gemini vaatii: ensimmäinen viesti user, viimeinen user, ei peräkkäisiä samoja rooleja
     const systemPrompt = basePrompt;
-    const geminiMessages = messages.map((m, i) => ({
+    // Suodata viestit Geminille: poista johtavat assistant-viestit, varmista user-viesti lopussa
+    const filteredMessages = messages.filter((m, i) => {
+      // Poista ensimmäinen assistant-viesti (botin tervetulotoivotus)
+      if (i === 0 && m.role === 'assistant') return false;
+      return true;
+    });
+    // Varmista että viimeinen viesti on user
+    const lastUserIdx = filteredMessages.map(m => m.role).lastIndexOf('user');
+    const msgsForGemini = filteredMessages.slice(0, lastUserIdx + 1);
+    
+    const geminiMessages = msgsForGemini.map((m, i) => ({
       role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: i === messages.length - 1 && m.role === 'user' && productCtx
+      parts: [{ text: i === msgsForGemini.length - 1 && m.role === 'user' && productCtx
         ? m.content + productCtx
         : m.content }]
     }));
