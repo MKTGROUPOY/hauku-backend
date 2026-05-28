@@ -4,7 +4,7 @@ export default async function handler(req, res) {
   const token = process.env.SHOPIFY_PUBLIC_TOKEN;
 
   const query = `{
-    products(first: 3, query: "vendor:Alpha Spirit") {
+    products(first: 3, query: "vendor:\\"Alpha Spirit\\"") {
       edges {
         node {
           title
