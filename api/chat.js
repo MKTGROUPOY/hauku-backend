@@ -68,7 +68,7 @@ export default async function handler(req, res) {
     console.log('allUserText sample:', norm(messages.map(m=>m.content).join(' ')).substring(0,100));
     const hasFilters = !!(
       filters.excl.length || filters.want.length ||
-      filters.brand || filters.age || filters.size || filters.specialDiets?.length
+      filters.brand || filters.age || filters.size || filters.specialDiets?.length || filters.store
     );
     let matched = hasFilters ? filterProducts(products, filters) : [];
     // Jos löytyi tarkka tuote, varmista että se on kontekstissa
