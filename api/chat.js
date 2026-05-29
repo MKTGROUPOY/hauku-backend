@@ -89,10 +89,15 @@ export default async function handler(req, res) {
     const noProductInstruction = !productCtx ? 
       '\n\nTÄRKEÄ OHJE: Tässä viestissä ei ole <tuotteet_tietokannasta>-osiota. Et tiedä mitä tuotteita on valikoimassa. ÄLÄ mainitse yhtään tuotteen nimeä, merkkiä tai linkkiä. Kysy vain lisätietoja koirasta (rotu, ikä, tarpeet).' : '';
 
+    // Rakenna koodissa tuotelista jota Gemini EI voi muuttaa
+    const matchedProductNames = matched.map(p => p.n);
+    const productWhitelistInstruction = productCtx && matchedProductNames.length > 0 ? 
+      `\n\nKRIITTINEN TURVALLISUUSOHJE – ALLERGEENIT: Saat suositella VAIN näitä ${matchedProductNames.length} tuotetta: [${matchedProductNames.join(' | ')}]. ÄLÄ KOSKAAN mainitse muita tuotteita. Tämä on hengenvaarallinen turvallisuusvaatimus allergikoirille.` : '';
+
     // 4. Rakenna viestit Geminille
     const basePrompt = (HARDCODED_PROMPT || process.env.SYSTEM_PROMPT || '') + noProductInstruction;
     // Gemini vaatii: ensimmäinen viesti user, viimeinen user, ei peräkkäisiä samoja rooleja
-    const systemPrompt = basePrompt + catalogSummary;
+    const systemPrompt = basePrompt + catalogSummary + productWhitelistInstruction;
     // Suodata viestit Geminille: poista johtavat assistant-viestit, varmista user-viesti lopussa
     const filteredMessages = messages.filter((m, i) => {
       // Poista ensimmäinen assistant-viesti (botin tervetulotoivotus)
