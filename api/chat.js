@@ -26,6 +26,11 @@ export default async function handler(req, res) {
     // 2. Tunnista filtterit
     const filters = extractFilters(messages);
 
+    // 2a. Rakenna valikoiman yhteenveto Shopify-datasta (päivittyy automaattisesti)
+    const productTypes = [...new Set(products.map(p => p.tt || '').filter(Boolean))];
+    const brands = [...new Set(products.map(p => p.m || '').filter(Boolean))];
+    const catalogSummary = `\n\n[VALIKOIMAN YHTEENVETO - päivitetty automaattisesti Shopifysta:\n- Tuotteita yhteensä: ${products.length}\n- Merkkejä: ${brands.length}\n- Tuotetyypit valikoimassa: ${productTypes.length > 0 ? productTypes.join(', ') : 'kuivaruoka'}\n- Jos asiakas kysyy tuottetyypistä jota ei yllä ole, kerro rehellisesti ettei sitä vielä ole valikoimassa]`;
+
     // 2b. Tarkka tuotenimiehaku - priorisoi täsmäävä tuote
     const userText = norm(messages.filter(m => m.role === 'user').map(m => m.content).join(' '));
     let exactProduct = null;
@@ -87,7 +92,7 @@ export default async function handler(req, res) {
     // 4. Rakenna viestit Geminille
     const basePrompt = (HARDCODED_PROMPT || process.env.SYSTEM_PROMPT || '') + noProductInstruction;
     // Gemini vaatii: ensimmäinen viesti user, viimeinen user, ei peräkkäisiä samoja rooleja
-    const systemPrompt = basePrompt;
+    const systemPrompt = basePrompt + catalogSummary;
     // Suodata viestit Geminille: poista johtavat assistant-viestit, varmista user-viesti lopussa
     const filteredMessages = messages.filter((m, i) => {
       // Poista ensimmäinen assistant-viesti (botin tervetulotoivotus)
