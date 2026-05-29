@@ -166,21 +166,38 @@ export default async function handler(req, res) {
     
     // Liitä koodissa formatoitu tuotelista Geminin intro-tekstin perään
     if (matched.length > 0 && productCtx) {
-      // Näytä max 5 tuotetta, yksinkertainen formaatti
+      // Näytä max 5 tuotetta siistillä formaatilla
       const displayProducts = matched.slice(0, 5);
       const productList = displayProducts.map(p => {
+        // Parsitaan ainesosat ja ravintoarvot siististi
+        const parseVal = v => {
+          if (!v) return '';
+          try { const a = JSON.parse(v); return Array.isArray(a) ? a.join(' ').replace(/\[|\]/g,'') : a; }
+          catch { return String(v).replace(/\[|\]|"/g,''); }
+        };
+        const aStr = parseVal(p.a);
+        const rvStr = parseVal(p.rv);
+        
+        // Parsitaan proteiini ja rasva ravintoarvoista
+        const protMatch = rvStr.match(/raakaproteiini[:\s]+([\d.,]+)%/i);
+        const fatMatch = rvStr.match(/raakarasva[:\s]+([\d.,]+)%/i);
+        const prot = protMatch ? protMatch[1] + '%' : '';
+        const fat = fatMatch ? fatMatch[1] + '%' : '';
+        
         let lines = [`**${p.n}**`];
-        if (p.m) lines.push(`Merkki: ${p.m}`);
-        // Näytä vain lyhyt tiivistelmä ainesosista
-        const aStr = Array.isArray(p.a) ? p.a.join(' ') : (p.a || '');
-        if (aStr) lines.push(`Pääainesosat: ${aStr.substring(0, 120)}...`);
-        if (p.rl) lines.push(`Rasva: ${p.rl}`);
-        if (p.kp && p.l) lines.push(`Osta (${p.kp}): ${p.l}`);
-        else if (p.kp2 && p.l2) lines.push(`Osta (${p.kp2}): ${p.l2}`);
+        if (prot || fat) lines.push(`Proteiini: ${prot} | Rasva: ${fat}`);
+        if (aStr) lines.push(`Pääainesosat: ${aStr.substring(0, 150)}`);
+        
+        // Ostolinkit
+        const links = [];
+        if (p.l && p.kp) links.push(`[Osta ${p.kp}](${p.l})`);
+        if (p.l2 && p.kp2) links.push(`[Osta ${p.kp2}](${p.l2})`);
+        if (links.length) lines.push(links.join(' | '));
+        
         return lines.join('\n');
       }).join('\n\n');
       const moreCount = matched.length - displayProducts.length;
-      const moreText = moreCount > 0 ? `\n\n_Löydettiin yhteensä ${matched.length} sopivaa tuotetta. Kysy lisää jos haluat nähdä muita vaihtoehtoja._` : '';
+      const moreText = moreCount > 0 ? `\n\n_Löydettiin ${matched.length} sopivaa tuotetta. Pyydä lisää vaihtoehtoja tarvittaessa._` : '';
       
       reply = reply.trim() + '\n\n' + productList + moreText + '\n\n📋 Tarkistathan tuotteen tiedot ennen ostopäätöstä.';
     }
