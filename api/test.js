@@ -1,32 +1,32 @@
-import { getProducts } from '../lib/shopify.js';
-
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  const products = await getProducts();
-  
-  // Check store link coverage
-  const hasPeten = products.filter(p => 
-    (p.l && p.l.includes('petenkoiratarvike')) || 
-    (p.l2 && p.l2.includes('petenkoiratarvike'))
-  ).length;
-  
-  const hasHaukkula = products.filter(p => 
-    (p.l && p.l.includes('haukkula')) || 
-    (p.l2 && p.l2.includes('haukkula'))
-  ).length;
+  const shopDomain = process.env.SHOPIFY_DOMAIN;
+  const token = process.env.SHOPIFY_PUBLIC_TOKEN;
 
-  // Sample product with links
-  const sample = products.filter(p => p.l || p.l2).slice(0,3).map(p => ({
-    n: p.n,
-    kp: p.kp, l: p.l?.substring(0,60),
-    kp2: p.kp2, l2: p.l2?.substring(0,60)
-  }));
+  // Check what metafield keys actually return data for kauppa links
+  const query = `{
+    products(first: 5, query: "vendor:Acana") {
+      edges {
+        node {
+          title
+          metafields(identifiers: [
+            {namespace:"custom", key:"kauppa_1_nimi"}
+            {namespace:"custom", key:"kauppa_1_linkki"}
+            {namespace:"custom", key:"kauppa_2_nimi"}
+            {namespace:"custom", key:"kauppa_2_linkki"}
+            {namespace:"custom", key:"kauppa_3_nimi"}
+            {namespace:"custom", key:"kauppa_3_linkki"}
+          ]) { key value }
+        }
+      }
+    }
+  }`;
 
-  res.status(200).json({ 
-    total: products.length,
-    hasPetenLink: hasPeten,
-    hasHaukkulaLink: hasHaukkula,
-    noLinks: products.filter(p => !p.l && !p.l2).length,
-    sample
+  const r = await fetch(`https://${shopDomain}/api/2025-07/graphql.json`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json','X-Shopify-Storefront-Access-Token':token},
+    body: JSON.stringify({query}),
   });
+  const data = await r.json();
+  res.status(200).json(data);
 }
