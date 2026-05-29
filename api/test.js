@@ -3,9 +3,9 @@ export default async function handler(req, res) {
   const shopDomain = process.env.SHOPIFY_DOMAIN;
   const token = process.env.SHOPIFY_PUBLIC_TOKEN;
 
-  // Check what metafield keys actually return data for kauppa links
+  // Check YDOLO which we know has Haukkula links
   const query = `{
-    products(first: 5, query: "vendor:Acana") {
+    products(first: 2, query: "vendor:YDOLO") {
       edges {
         node {
           title
