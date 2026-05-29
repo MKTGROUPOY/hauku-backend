@@ -166,19 +166,23 @@ export default async function handler(req, res) {
     
     // Liitä koodissa formatoitu tuotelista Geminin intro-tekstin perään
     if (matched.length > 0 && productCtx) {
-      const productList = matched.map(p => {
+      // Näytä max 5 tuotetta, yksinkertainen formaatti
+      const displayProducts = matched.slice(0, 5);
+      const productList = displayProducts.map(p => {
         let lines = [`**${p.n}**`];
         if (p.m) lines.push(`Merkki: ${p.m}`);
-        if (p.a) lines.push(`Ainesosat: ${Array.isArray(p.a) ? p.a.join(', ') : p.a}`);
-        if (p.rv) lines.push(`Ravintoarvot: ${p.rv}`);
-        if (p.la) lines.push(`Lisäaineet: ${p.la}`);
-        if (p.rl) lines.push(`Rasvapitoisuus: ${p.rl}`);
+        // Näytä vain lyhyt tiivistelmä ainesosista
+        const aStr = Array.isArray(p.a) ? p.a.join(' ') : (p.a || '');
+        if (aStr) lines.push(`Pääainesosat: ${aStr.substring(0, 120)}...`);
+        if (p.rl) lines.push(`Rasva: ${p.rl}`);
         if (p.kp && p.l) lines.push(`Osta (${p.kp}): ${p.l}`);
-        if (p.kp2 && p.l2) lines.push(`Osta myös (${p.kp2}): ${p.l2}`);
+        else if (p.kp2 && p.l2) lines.push(`Osta (${p.kp2}): ${p.l2}`);
         return lines.join('\n');
       }).join('\n\n');
+      const moreCount = matched.length - displayProducts.length;
+      const moreText = moreCount > 0 ? `\n\n_Löydettiin yhteensä ${matched.length} sopivaa tuotetta. Kysy lisää jos haluat nähdä muita vaihtoehtoja._` : '';
       
-      reply = reply.trim() + '\n\n' + productList + '\n\n📋 Tarkistathan tuotteen tiedot ennen ostopäätöstä.';
+      reply = reply.trim() + '\n\n' + productList + moreText + '\n\n📋 Tarkistathan tuotteen tiedot ennen ostopäätöstä.';
     }
 
     return res.status(200).json({ reply });
