@@ -31,18 +31,21 @@ export default async function handler(req, res) {
     const brands = [...new Set(products.map(p => p.m || '').filter(Boolean))];
     const catalogSummary = `\n\n[VALIKOIMAN YHTEENVETO - päivitetty automaattisesti Shopifysta:\n- Tuotteita yhteensä: ${products.length}\n- Merkkejä: ${brands.length}\n- Tuotetyypit valikoimassa: ${productTypes.length > 0 ? productTypes.join(', ') : 'kuivaruoka'}\n- Jos asiakas kysyy tuottetyypistä jota ei yllä ole, kerro rehellisesti ettei sitä vielä ole valikoimassa]`;
 
-    // 2b. Tarkka tuotenimiehaku - priorisoi täsmäävä tuote
-    const userText = norm(messages.filter(m => m.role === 'user').map(m => m.content).join(' '));
+    // 2b. Tarkka tuotenimiehaku - hae koko keskusteluhistoriasta
+    const allText = norm(messages.map(m => m.content).join(' '));
     let exactProduct = null;
     if (products.length > 0) {
-      // Etsi tuote jonka nimi löytyy käyttäjän viestistä (min 10 merkkiä)
+      // Etsi tuote jonka nimi löytyy mistä tahansa viestistä (min 10 merkkiä)
+      let bestMatch = null;
+      let bestLen = 0;
       for (const p of products) {
         const pNorm = norm(p.n || '');
-        if (pNorm.length >= 10 && userText.includes(pNorm)) {
-          exactProduct = p;
-          break;
+        if (pNorm.length >= 10 && allText.includes(pNorm) && pNorm.length > bestLen) {
+          bestMatch = p;
+          bestLen = pNorm.length;
         }
       }
+      exactProduct = bestMatch;
     }
 
     // 3. Bränditunnistus tuotelistan perusteella
@@ -68,7 +71,8 @@ export default async function handler(req, res) {
     console.log('allUserText sample:', norm(messages.map(m=>m.content).join(' ')).substring(0,100));
     const hasFilters = !!(
       filters.excl.length || filters.want.length ||
-      filters.brand || filters.age || filters.size || filters.specialDiets?.length || filters.store
+      filters.brand || filters.age || filters.size || filters.specialDiets?.length || filters.store ||
+      exactProduct  // jatkokysymykset yksittäisestä tuotteesta
     );
     let matched = hasFilters ? filterProducts(products, filters) : [];
     // Jos löytyi tarkka tuote, varmista että se on kontekstissa
