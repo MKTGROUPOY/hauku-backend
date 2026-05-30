@@ -59,7 +59,11 @@ export default async function handler(req, res) {
       const recentUserText = norm(recentUserMsgs.map(m => m.content).join(' '));
       console.log('recentUserText:', recentUserText.substring(0, 80));
       for (const vendor of vendors) {
-        if (recentUserText.includes(vendor)) {
+        // Tarkista myös suomen taivutusmuodot (grandorf -> grandorfin, grandorfilla jne.)
+        const vendorBase = vendor.replace(/[^a-zäöå]/g, '');
+        if (recentUserText.includes(vendor) || recentUserText.includes(vendorBase + 'in') || 
+            recentUserText.includes(vendorBase + 'ia') || recentUserText.includes(vendorBase + 'illa') ||
+            recentUserText.includes(vendorBase + 'sta') || recentUserText.includes(vendorBase + 'lla')) {
           filters.brand = vendor;
           console.log('Brand found:', vendor);
           break;
