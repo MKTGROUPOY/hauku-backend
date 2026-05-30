@@ -113,30 +113,10 @@ export default async function handler(req, res) {
       return res.status(200).json({ reply: 'Moikka! Miten voin auttaa koirasi kanssa?' });
     }
 
-    // Jos tuotteita löytyi, pyydä Geminiä kirjoittamaan VAIN selittävä teksti
-    // Tuotelista formatoidaan koodissa - Gemini ei voi lisätä omia tuotteitaan
-    let geminiUserContent = msgsForGemini[msgsForGemini.length - 1]?.content || '';
-    
-    if (productCtx && matched.length > 0) {
-      // Kerro Geminille filtterit mutta ÄLÄ anna tuotelistaa - pyydetään vain intro-teksti
-      const filterDesc = [
-        filters.excl.length ? `ei sisällä: ${filters.excl.join(', ')}` : '',
-        filters.store ? `saatavilla: ${filters.store}` : '',
-        filters.brand ? `merkki: ${filters.brand}` : '',
-        filters.wantLowFat ? 'vähärasvainen' : '',
-      ].filter(Boolean).join(', ');
-      
-      geminiUserContent = geminiUserContent + 
-        `\n\n[JÄRJESTELMÄ: Löydettiin ${matched.length} sopivaa tuotetta kriteerein: ${filterDesc}. ` +
-        `Kirjoita lyhyt (2-3 lausetta) johdanto joka kertoo että löysit sopivia vaihtoehtoja. ` +
-        `ÄLÄ listaa yhtään tuotetta nimeltä – tuotelista näytetään automaattisesti. ` +
-        `Kirjoita vain ystävällinen intro-teksti.]`;
-    }
-    
     const geminiMessages = msgsForGemini.map((m, i) => ({
       role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: i === msgsForGemini.length - 1 && m.role === 'user'
-        ? geminiUserContent
+      parts: [{ text: i === msgsForGemini.length - 1 && m.role === 'user' && productCtx
+        ? m.content + productCtx
         : m.content }]
     }));
 
@@ -164,43 +144,7 @@ export default async function handler(req, res) {
     const data = await geminiRes.json();
     let reply = data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'Yritä uudelleen.';
     
-    // Liitä koodissa formatoitu tuotelista Geminin intro-tekstin perään
-    if (matched.length > 0 && productCtx) {
-      // Näytä max 5 tuotetta siistillä formaatilla
-      const displayProducts = matched.slice(0, 5);
-      const productList = displayProducts.map(p => {
-        // Parsitaan ainesosat ja ravintoarvot siististi
-        const parseVal = v => {
-          if (!v) return '';
-          try { const a = JSON.parse(v); return Array.isArray(a) ? a.join(' ').replace(/\[|\]/g,'') : a; }
-          catch { return String(v).replace(/\[|\]|"/g,''); }
-        };
-        const aStr = parseVal(p.a);
-        const rvStr = parseVal(p.rv);
-        
-        // Parsitaan proteiini ja rasva ravintoarvoista
-        const protMatch = rvStr.match(/raakaproteiini[:\s]+([\d.,]+)%/i);
-        const fatMatch = rvStr.match(/raakarasva[:\s]+([\d.,]+)%/i);
-        const prot = protMatch ? protMatch[1] + '%' : '';
-        const fat = fatMatch ? fatMatch[1] + '%' : '';
-        
-        let lines = [`**${p.n}**`];
-        if (prot || fat) lines.push(`Proteiini: ${prot} | Rasva: ${fat}`);
-        if (aStr) lines.push(`Pääainesosat: ${aStr.substring(0, 150)}`);
-        
-        // Ostolinkit
-        const links = [];
-        if (p.l && p.kp) links.push(`[Osta ${p.kp}](${p.l})`);
-        if (p.l2 && p.kp2) links.push(`[Osta ${p.kp2}](${p.l2})`);
-        if (links.length) lines.push(links.join(' | '));
-        
-        return lines.join('\n');
-      }).join('\n\n');
-      const moreCount = matched.length - displayProducts.length;
-      const moreText = moreCount > 0 ? `\n\n_Löydettiin ${matched.length} sopivaa tuotetta. Pyydä lisää vaihtoehtoja tarvittaessa._` : '';
-      
-      reply = reply.trim() + '\n\n' + productList + moreText + '\n\n📋 Tarkistathan tuotteen tiedot ennen ostopäätöstä.';
-    }
+
 
     return res.status(200).json({ reply });
 
