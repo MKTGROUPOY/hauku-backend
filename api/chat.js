@@ -54,11 +54,12 @@ export default async function handler(req, res) {
       const BLACKLIST = ['hauku','ruokakoiralle','koiralle','koira','ruoka','peten','zooplus','haukkula'];
       const vendors = [...new Set(products.map(p => norm(p.m || '')).filter(v => v.length >= 4 && !BLACKLIST.includes(v)))];
       vendors.sort((a, b) => b.length - a.length);
-      // Hae vain USER-viesteistä, ei botin omista viesteistä
-      const userOnlyText = norm(messages.filter(m => m.role === 'user').map(m => m.content).join(' '));
-      console.log('userOnlyText:', userOnlyText.substring(0, 80));
+      // Hae vain viimeisistä 2 käyttäjäviestistä - ei koko historiasta
+      const recentUserMsgs = messages.filter(m => m.role === 'user').slice(-2);
+      const recentUserText = norm(recentUserMsgs.map(m => m.content).join(' '));
+      console.log('recentUserText:', recentUserText.substring(0, 80));
       for (const vendor of vendors) {
-        if (userOnlyText.includes(vendor)) {
+        if (recentUserText.includes(vendor)) {
           filters.brand = vendor;
           console.log('Brand found:', vendor);
           break;
