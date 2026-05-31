@@ -72,6 +72,24 @@ export default async function handler(req, res) {
       }
       filters.brand = detectedBrand;
 
+      // Tunnista toinen brändi vertailukysymyksissä ("Acana vai Grandorf", "Acana vs Grandorf")
+      if (detectedBrand && /vai|vs|versus|vertaa|verrattuna/.test(latestUserText)) {
+        for (const vendor of vendors) {
+          if (vendor === detectedBrand) continue;
+          const base2 = vendor.replace(/[^a-zäöå]/g, '');
+          if (
+            latestUserText.includes(vendor) ||
+            latestUserText.includes(base2 + 'in') ||
+            latestUserText.includes(base2 + 'ia') ||
+            latestUserText.includes(base2 + 'lla') ||
+            latestUserText.includes(base2 + 'sta')
+          ) {
+            filters.brand2 = vendor;
+            break;
+          }
+        }
+      }
+
       // Tunnista kysytty brändi vaikka ei löytyisi valikoimasta
       // Laajempi pattern: kaikki brändiviittaukset
       // askedBrand-tunnistus poistettu — aiheutti liian paljon vääriä positiivisia
@@ -164,6 +182,16 @@ export default async function handler(req, res) {
 
     // 6. Suodata tuotteet
     let matched = hasFilters ? filterProducts(products, filters) : [];
+
+    // Vertailuhaku: jos kaksi brändiä, hae molempien tuotteet
+    if (filters.brand2) {
+      const filters2 = { ...filters, brand: filters.brand2 };
+      const matched2 = filterProducts(products, filters2);
+      // Yhdistä: max 5 kummastakin
+      matched = [...matched.slice(0, 5), ...matched2.slice(0, 5)];
+      console.log('COMPARISON: brand1:', filters.brand, matched.length/2, '| brand2:', filters.brand2, matched2.length);
+    }
+
     if (exactProduct) {
       const rest = matched.filter(p => p.n !== exactProduct.n).slice(0, 4);
       matched = [exactProduct, ...rest];
