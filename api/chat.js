@@ -103,15 +103,17 @@ export default async function handler(req, res) {
       // Jos brändi ei löydy vendor-listasta, Gemini käsittelee sen normaalisti
     }
 
-    // 4. Tarkka tuotenimiehaku viimeisestä käyttäjäviestistä
+    // 4. Tarkka tuotenimiehaku viimeisestä käyttäjäviestistä — tukee useita tuotteita
     const lastUserText = norm(messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '');
     let exactProduct = null;
-    let bestLen = 0;
+    let exactProducts = []; // kaikki mainitut tuotteet
     for (const p of products) {
       const pNorm = norm(p.n || '');
-      if (pNorm.length >= 10 && lastUserText.includes(pNorm) && pNorm.length > bestLen) {
-        exactProduct = p;
-        bestLen = pNorm.length;
+      if (pNorm.length >= 10 && lastUserText.includes(pNorm)) {
+        exactProducts.push(p);
+        if (!exactProduct || pNorm.length > norm(exactProduct.n).length) {
+          exactProduct = p;
+        }
       }
     }
 
@@ -207,9 +209,14 @@ export default async function handler(req, res) {
       console.log('COMPARISON: brand1:', filters.brand, matched.length/2, '| brand2:', filters.brand2, matched2.length);
     }
 
-    if (exactProduct) {
+    // Nosta tarkat tuotteet listan kärkeen (vertailukysymykset)
+    if (exactProducts.length > 1) {
+      const otherMatched = matched.filter(p => !exactProducts.find(ep => ep.n === p.n));
+      matched = [...exactProducts, ...otherMatched.slice(0, 2)];
+    } else if (exactProduct) {
       const rest = matched.filter(p => p.n !== exactProduct.n).slice(0, 4);
       matched = [exactProduct, ...rest];
+    }
     }
 
     // 7. Rakenna tuotekonteksti
