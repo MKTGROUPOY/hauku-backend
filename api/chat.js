@@ -12,7 +12,7 @@ function norm(s) {
 function detectPriceQuestion(messages) {
   const lastMsg = messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '';
   const t = lastMsg.toLowerCase();
-  return /edullisin|halvin|halvempi|hinta|hinnat|budjetti|budget|maksaa|paljonko.*maks|miten.*hintaan|mikä.*hinta/.test(t);
+  return /edullisi|edullinen|edullista|edullisia|halvin|halvempi|halvat|halpa|hinta|hinnat|budjetti|budget|maksaa|paljonko.*maks|miten.*hintaan|mikä.*hinta|hintavin|kalliimpi|kallein/.test(t);
 }
 
 // ── Sairaudet jotka vaativat eläinlääkäriä – backend estää tuotekontekstin ──
