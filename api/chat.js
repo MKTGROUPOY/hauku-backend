@@ -217,7 +217,6 @@ export default async function handler(req, res) {
       const rest = matched.filter(p => p.n !== exactProduct.n).slice(0, 4);
       matched = [exactProduct, ...rest];
     }
-    }
 
     // 7. Rakenna tuotekonteksti
     let productCtx = '';
