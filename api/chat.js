@@ -8,6 +8,13 @@ function norm(s) {
   return s.toLowerCase().replace(/[^a-zäöå ]/g, ' ').replace(/ +/g, ' ').trim();
 }
 
+// ── Hintakysymykset – backend vastaa suoraan ──────────────────────────────────
+function detectPriceQuestion(messages) {
+  const lastMsg = messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '';
+  const t = lastMsg.toLowerCase();
+  return /edullisin|halvin|halvempi|hinta|hinnat|budjetti|budget|maksaa|paljonko.*maks|miten.*hintaan|mikä.*hinta/.test(t);
+}
+
 // ── Sairaudet jotka vaativat eläinlääkäriä – backend estää tuotekontekstin ──
 const MEDICAL_BLOCKS = [
   'munuain', 'munuais', 'renal', 'maksan vajaa', 'hepatic',
@@ -108,7 +115,15 @@ export default async function handler(req, res) {
       }
     }
 
-        // 5a. Tuotemäärä-kysymys — vastaa suoraan backendistä, ei Geminiltä
+        // 5b. Hintakysymys — vastaa suoraan backendistä
+    if (detectPriceQuestion(messages)) {
+      console.log('PRICE QUESTION detected');
+      return res.status(200).json({
+        reply: 'Palvelussamme ei ole hintatietoja, joten emme voi vertailla hintoja tai kertoa mikä on edullisin. Näet tuotteiden hinnat suoraan ostolinkistä verkkokauppaan. Voin sen sijaan auttaa löytämään koirallesi sopivimman ruoan muin kriteerein — kerro koirasi rotu, ikä ja mahdolliset erityistarpeet!'
+      });
+    }
+
+    // 5a. Tuotemäärä-kysymys — vastaa suoraan backendistä, ei Geminiltä
     const userMsgsAll = messages.filter(m => m.role === 'user');
     const latestUserMsg = norm(userMsgsAll[userMsgsAll.length - 1]?.content || '');
     const isCountQuestion = /montako|kuinka monta|paljonko.*tuotett|monta.*tuotett/.test(latestUserMsg);
