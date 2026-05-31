@@ -26,31 +26,35 @@ export default async function handler(req, res) {
     // 2. Tunnista filtterit
     const filters = extractFilters(messages);
 
-    // 3. Bränditunnistus tuotelistan perusteella (vain viimeisistä 2 viestistä)
-    if (!filters.brand && products.length > 0) {
+    // 3. Bränditunnistus — VAIN viimeisin käyttäjäviesti
+    // Näin "Entä Acana?" ei sekoitu edelliseen Riverwood-hakuun
+    if (products.length > 0) {
       const BLACKLIST = ['hauku', 'ruokakoiralle', 'koiralle', 'koira', 'ruoka', 'peten', 'zooplus', 'haukkula'];
       const vendors = [...new Set(
         products.map(p => norm(p.m || '')).filter(v => v.length >= 4 && !BLACKLIST.includes(v))
       )].sort((a, b) => b.length - a.length);
 
-      const recentUserText = norm(
-        messages.filter(m => m.role === 'user').slice(-2).map(m => m.content).join(' ')
-      );
+      // Käytä VAIN viimeisintä käyttäjäviestiä bränditunnistukseen
+      const userMsgs = messages.filter(m => m.role === 'user');
+      const latestUserText = norm(userMsgs[userMsgs.length - 1]?.content || '');
 
+      let detectedBrand = null;
       for (const vendor of vendors) {
         const base = vendor.replace(/[^a-zäöå]/g, '');
         if (
-          recentUserText.includes(vendor) ||
-          recentUserText.includes(base + 'in') ||
-          recentUserText.includes(base + 'ia') ||
-          recentUserText.includes(base + 'illa') ||
-          recentUserText.includes(base + 'sta') ||
-          recentUserText.includes(base + 'lla')
+          latestUserText.includes(vendor) ||
+          latestUserText.includes(base + 'in') ||
+          latestUserText.includes(base + 'ia') ||
+          latestUserText.includes(base + 'illa') ||
+          latestUserText.includes(base + 'sta') ||
+          latestUserText.includes(base + 'lla')
         ) {
-          filters.brand = vendor;
+          detectedBrand = vendor;
           break;
         }
       }
+      // Ylikirjoita aina viimeisimmän viestin brändi (nollaa vanhan kontekstin)
+      filters.brand = detectedBrand;
     }
 
     // 4. Tarkka tuotenimiehaku koko historiasta
