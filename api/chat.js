@@ -100,7 +100,7 @@ export default async function handler(req, res) {
     const latestUserMsg = norm(userMsgsAll[userMsgsAll.length - 1]?.content || '');
     const isCountQuestion = /montako|kuinka monta|paljonko.*tuotett|monta.*tuotett/.test(latestUserMsg);
     // "Oletko varma?" tuotemäärästä — tarkista onko edellinen assistant-vastaus sisältänyt luvun
-    const isDoubtQuestion = /oletko varma|oletko.*varma|oletko.*oikein|varmistaisitko|tarkista|tarkistat|ihan varma|täysin varma/.test(latestUserMsg);
+    const isDoubtQuestion = /oletko varma|ihan varma|täysin varma|oletko oikein|oletko.*oikein|varmista|tarkistat|pitääkö paikkansa|onko se oikein/.test(latestUserMsg);
     const lastAssistantMsg = messages.filter(m => m.role === 'assistant').slice(-1)[0]?.content || '';
     const prevCountMatch = lastAssistantMsg.match(/\*\*(\d+)\*\*.*-tuotetta|on (\d+) .{1,20}-tuotetta/);
     if (isDoubtQuestion && prevCountMatch && filters.brand) {
@@ -192,11 +192,21 @@ export default async function handler(req, res) {
     const brands = [...new Set(products.map(p => p.m || '').filter(Boolean))];
     const catalogSummary = `\n\n[VALIKOIMAN TIEDOT: ${products.length} tuotetta, ${brands.length} merkkiä. Tuotetyypit: ${productTypes.length > 0 ? productTypes.join(', ') : 'kuivaruoka'}. Jos asiakas kysyy tuotetyypistä jota ei listalla ole, kerro rehellisesti ettei sitä ole valikoimassa.]`;
 
+    // Injektoi tarkka tuotemäärä system promptiin jos brändi tunnistettu
+    // Näin Gemini tietää oikean luvun eikä voi keksiä uutta
+    const brandCountInstruction = filters.brand ? (() => {
+      const brandProducts = products.filter(p =>
+        norm(p.m || '').includes(norm(filters.brand)) || norm(p.n || '').includes(norm(filters.brand))
+      );
+      const brandDisplay = filters.brand.charAt(0).toUpperCase() + filters.brand.slice(1);
+      return `\n\n[TIETOKANTAFAKTA – ÄLÄ MUUTA: ${brandDisplay}-tuotteita on valikoimassamme TASAN ${brandProducts.length} kappaletta. Jos asiakas kysyy montako tai kyseenalaistaa luvun, vastaa AINA ${brandProducts.length}. Älä koskaan sano muuta lukua.]`;
+    })() : '';
+
     const noProductInstruction = !productCtx
       ? '\n\nOHJE: Tässä viestissä ei ole tuotetietokantahakua. Et tiedä mitä tuotteita on valikoimassa. ÄLÄ mainitse yhtään tuotteen nimeä, merkkiä tai linkkiä. Kysy ensin lisätietoja koirasta.'
       : '';
 
-    const systemPrompt = (HARDCODED_PROMPT || '') + catalogSummary + noProductInstruction;
+    const systemPrompt = (HARDCODED_PROMPT || '') + catalogSummary + brandCountInstruction + noProductInstruction;
 
     console.log('filters:', JSON.stringify({ brand: filters.brand, excl: filters.excl, want: filters.want, age: filters.age, size: filters.size }));
     console.log('hasFilters:', hasFilters, '| matched:', matched.length, '| exactProduct:', exactProduct?.n || null, '| askedBrand:', askedBrand);
