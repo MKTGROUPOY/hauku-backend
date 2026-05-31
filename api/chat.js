@@ -72,13 +72,20 @@ export default async function handler(req, res) {
         }
       }
       filters.brand = detectedBrand;
+      // DEBUG: log vendor list to check ydolo
+      const ydoloCheck = vendors.find(v => v.includes('ydolo') || v.includes('yodolo'));
+      console.log('DEBUG vendors sample:', vendors.slice(0, 20).join(' | '));
+      console.log('DEBUG ydolo in vendors:', ydoloCheck || 'NOT FOUND');
+      console.log('DEBUG latestUserText:', latestUserText.substring(0, 80));
 
       // Tunnista kysytty brändi vaikka ei löytyisi valikoimasta
-      // Heuristic: iso kirjain tai tunnettu pattern brändikysymyksessä
+      // Laajempi pattern: kaikki brändiviittaukset
       if (!detectedBrand) {
-        const brandQuestionMatch = latestUserText.match(/(?:löytyykö|onko|entä|löytyy|haen|etsin)\s+([a-zäöå]{4,})/i);
+        const brandQuestionMatch = latestUserText.match(
+          /(?:löytyykö|onko|entä|löytyy|haen|etsin|merkiltä|merkki|brändiltä)\s+([a-zäöå]{3,})|([a-zäöå]{3,})(?:n tuotteita|n ruokia|lla|lta|sta|in tuotteita)/i
+        );
         if (brandQuestionMatch) {
-          askedBrand = brandQuestionMatch[1];
+          askedBrand = (brandQuestionMatch[1] || brandQuestionMatch[2])?.trim();
         }
       }
     }
@@ -175,8 +182,22 @@ export default async function handler(req, res) {
     }
 
     // 7. Rakenna tuotekonteksti
-    // Jos käyttäjä kysyi brändiä jota ei löydy → kerro se selvästi
     let productCtx = '';
+
+    // Tarkista onko askedBrand mainittu myös aiemmissa viesteissä (kontekstin säilytys)
+    if (!askedBrand && !filters.brand) {
+      // Etsi aiemmista assistant-viesteistä maininta "X-merkkiä ei löydy"
+      const allAssistant = messages.filter(m => m.role === 'assistant').map(m => m.content).join(' ');
+      const prevNotFound = allAssistant.match(/([A-Za-zäöåÄÖÅ]{3,})-merkkiä ei löydy/);
+      if (prevNotFound) {
+        // Tarkista viittaako viimeisin käyttäjäviesti samaan brändiin
+        const mentionedBrand = norm(prevNotFound[1]);
+        if (latestUserMsg.includes(mentionedBrand) || latestUserMsg.includes('eikun') || latestUserMsg.includes('entä')) {
+          askedBrand = mentionedBrand;
+        }
+      }
+    }
+
     if (filters.brand && matched.length === 0 && !exactProduct) {
       productCtx = buildBrandNotFoundMsg(filters.brand);
     } else if (hasFilters || exactProduct) {
