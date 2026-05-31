@@ -76,11 +76,17 @@ export default async function handler(req, res) {
       // Tunnista kysytty brändi vaikka ei löytyisi valikoimasta
       // Laajempi pattern: kaikki brändiviittaukset
       if (!detectedBrand) {
+        // Tunnista brändi VAIN eksplisiittisistä brändikysymyksistä
+        // Älä osu yleisiin sanoihin kuten koira, ruoka, merkki jne.
+        const COMMON_WORDS = ['koira', 'ruoka', 'tuote', 'merkki', 'brandi', 'hinta', 'kauppa', 'pentu', 'vatsa', 'allergia'];
         const brandQuestionMatch = latestUserText.match(
-          /(?:löytyykö|onko|entä|löytyy|haen|etsin|merkiltä|merkki|brändiltä)\s+([a-zäöå]{3,})|([a-zäöå]{3,})(?:n tuotteita|n ruokia|lla|lta|sta|in tuotteita)/i
+          /(?:löytyykö|onko|entä|löytyy|haen|etsin|merkiltä|brändiltä)\s+([a-zäöå]{4,})(?:\s|$)/i
         );
         if (brandQuestionMatch) {
-          askedBrand = (brandQuestionMatch[1] || brandQuestionMatch[2])?.trim();
+          const candidate = brandQuestionMatch[1]?.trim();
+          if (candidate && !COMMON_WORDS.includes(candidate)) {
+            askedBrand = candidate;
+          }
         }
       }
     }
