@@ -72,11 +72,6 @@ export default async function handler(req, res) {
         }
       }
       filters.brand = detectedBrand;
-      // DEBUG: log vendor list to check ydolo
-      const ydoloCheck = vendors.find(v => v.includes('ydolo') || v.includes('yodolo'));
-      console.log('DEBUG vendors sample:', vendors.slice(0, 20).join(' | '));
-      console.log('DEBUG ydolo in vendors:', ydoloCheck || 'NOT FOUND');
-      console.log('DEBUG latestUserText:', latestUserText.substring(0, 80));
 
       // Tunnista kysytty brändi vaikka ei löytyisi valikoimasta
       // Laajempi pattern: kaikki brändiviittaukset
