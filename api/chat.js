@@ -26,110 +26,97 @@ export default async function handler(req, res) {
     // 2. Tunnista filtterit
     const filters = extractFilters(messages);
 
-    // 2a. Rakenna valikoiman yhteenveto Shopify-datasta (päivittyy automaattisesti)
-    const productTypes = [...new Set(products.map(p => p.tt || '').filter(Boolean))];
-    const brands = [...new Set(products.map(p => p.m || '').filter(Boolean))];
-    const catalogSummary = `\n\n[VALIKOIMAN YHTEENVETO - päivitetty automaattisesti Shopifysta:\n- Tuotteita yhteensä: ${products.length}\n- Merkkejä: ${brands.length}\n- Tuotetyypit valikoimassa: ${productTypes.length > 0 ? productTypes.join(', ') : 'kuivaruoka'}\n- Jos asiakas kysyy tuottetyypistä jota ei yllä ole, kerro rehellisesti ettei sitä vielä ole valikoimassa]`;
-
-    // 2b. Tarkka tuotenimiehaku - hae koko keskusteluhistoriasta
-    const allText = norm(messages.map(m => m.content).join(' '));
-    let exactProduct = null;
-    if (products.length > 0) {
-      // Etsi tuote jonka nimi löytyy mistä tahansa viestistä (min 10 merkkiä)
-      let bestMatch = null;
-      let bestLen = 0;
-      for (const p of products) {
-        const pNorm = norm(p.n || '');
-        if (pNorm.length >= 10 && allText.includes(pNorm) && pNorm.length > bestLen) {
-          bestMatch = p;
-          bestLen = pNorm.length;
-        }
-      }
-      exactProduct = bestMatch;
-    }
-
-    // 3. Bränditunnistus tuotelistan perusteella
+    // 3. Bränditunnistus tuotelistan perusteella (vain viimeisistä 2 viestistä)
     if (!filters.brand && products.length > 0) {
-      // Mustat lista - nämä sanat eivät ole brändejä
-      const BLACKLIST = ['hauku','ruokakoiralle','koiralle','koira','ruoka','peten','zooplus','haukkula'];
-      const vendors = [...new Set(products.map(p => norm(p.m || '')).filter(v => v.length >= 4 && !BLACKLIST.includes(v)))];
-      vendors.sort((a, b) => b.length - a.length);
-      // Hae vain viimeisistä 2 käyttäjäviestistä - ei koko historiasta
-      const recentUserMsgs = messages.filter(m => m.role === 'user').slice(-2);
-      const recentUserText = norm(recentUserMsgs.map(m => m.content).join(' '));
-      console.log('recentUserText:', recentUserText.substring(0, 80));
+      const BLACKLIST = ['hauku', 'ruokakoiralle', 'koiralle', 'koira', 'ruoka', 'peten', 'zooplus', 'haukkula'];
+      const vendors = [...new Set(
+        products.map(p => norm(p.m || '')).filter(v => v.length >= 4 && !BLACKLIST.includes(v))
+      )].sort((a, b) => b.length - a.length);
+
+      const recentUserText = norm(
+        messages.filter(m => m.role === 'user').slice(-2).map(m => m.content).join(' ')
+      );
+
       for (const vendor of vendors) {
-        // Tarkista myös suomen taivutusmuodot (grandorf -> grandorfin, grandorfilla jne.)
-        const vendorBase = vendor.replace(/[^a-zäöå]/g, '');
-        if (recentUserText.includes(vendor) || recentUserText.includes(vendorBase + 'in') || 
-            recentUserText.includes(vendorBase + 'ia') || recentUserText.includes(vendorBase + 'illa') ||
-            recentUserText.includes(vendorBase + 'sta') || recentUserText.includes(vendorBase + 'lla')) {
+        const base = vendor.replace(/[^a-zäöå]/g, '');
+        if (
+          recentUserText.includes(vendor) ||
+          recentUserText.includes(base + 'in') ||
+          recentUserText.includes(base + 'ia') ||
+          recentUserText.includes(base + 'illa') ||
+          recentUserText.includes(base + 'sta') ||
+          recentUserText.includes(base + 'lla')
+        ) {
           filters.brand = vendor;
-          console.log('Brand found:', vendor);
           break;
         }
       }
     }
 
-    console.log('filters:', JSON.stringify({brand:filters.brand,excl:filters.excl,want:filters.want}));
-    console.log('hasFilters will be:', !!(filters.excl.length||filters.want.length||filters.brand||filters.age||filters.size));
-    console.log('allUserText sample:', norm(messages.map(m=>m.content).join(' ')).substring(0,100));
+    // 4. Tarkka tuotenimiehaku koko historiasta
+    const allText = norm(messages.map(m => m.content).join(' '));
+    let exactProduct = null;
+    let bestLen = 0;
+    for (const p of products) {
+      const pNorm = norm(p.n || '');
+      if (pNorm.length >= 10 && allText.includes(pNorm) && pNorm.length > bestLen) {
+        exactProduct = p;
+        bestLen = pNorm.length;
+      }
+    }
+
     const hasFilters = !!(
       filters.excl.length || filters.want.length ||
-      filters.brand || filters.age || filters.size || filters.specialDiets?.length || filters.store ||
-      exactProduct  // jatkokysymykset yksittäisestä tuotteesta
+      filters.brand || filters.age || filters.size ||
+      filters.specialDiets?.length || filters.store ||
+      exactProduct
     );
+
+    // 5. Suodata tuotteet
     let matched = hasFilters ? filterProducts(products, filters) : [];
-    // Jos löytyi tarkka tuote, varmista että se on kontekstissa
-    if (exactProduct && !matched.find(p => p.n === exactProduct.n)) {
-      matched = [exactProduct, ...matched.slice(0, 4)];
-    } else if (exactProduct) {
-      // Nosta tarkka tuote listan ensimmäiseksi
-      matched = [exactProduct, ...matched.filter(p => p.n !== exactProduct.n).slice(0, 4)];
+
+    // Nosta tarkka tuote listan kärkeen
+    if (exactProduct) {
+      const rest = matched.filter(p => p.n !== exactProduct.n).slice(0, 4);
+      matched = [exactProduct, ...rest];
     }
+
     const productCtx = (hasFilters || exactProduct) ? buildProductContext(matched, filters) : '';
-    
-    console.log('brand:', filters.brand, 'hasFilters:', hasFilters, 'matched:', matched.length);
-    
-    console.log('brand:', filters.brand, 'hasFilters:', hasFilters, 'matched:', matched.length);
 
-    // 4. Jos ei filttereitä eikä tuotekontekstia, käytä Geminiä vain keskusteluun
-    // Lisää ohje olla suosittelematta tuotteita
-    const noProductInstruction = !productCtx ? 
-      '\n\nTÄRKEÄ OHJE: Tässä viestissä ei ole <tuotteet_tietokannasta>-osiota. Et tiedä mitä tuotteita on valikoimassa. ÄLÄ mainitse yhtään tuotteen nimeä, merkkiä tai linkkiä. Kysy vain lisätietoja koirasta (rotu, ikä, tarpeet).' : '';
+    // 6. Rakenna valikoiman yhteenveto (dynaamisesti Shopify-datasta)
+    const productTypes = [...new Set(products.map(p => p.tt || '').filter(Boolean))];
+    const brands = [...new Set(products.map(p => p.m || '').filter(Boolean))];
+    const catalogSummary = `\n\n[VALIKOIMAN TIEDOT: ${products.length} tuotetta, ${brands.length} merkkiä. Tuotetyypit: ${productTypes.length > 0 ? productTypes.join(', ') : 'kuivaruoka'}. Jos asiakas kysyy tuotetyypistä jota ei listalla ole, kerro rehellisesti ettei sitä ole valikoimassa.]`;
 
-    // Rakenna koodissa tuotelista jota Gemini EI voi muuttaa
-    const matchedProductNames = matched.map(p => p.n);
-    const productWhitelistInstruction = productCtx && matchedProductNames.length > 0 ? 
-      `\n\nKRIITTINEN TURVALLISUUSOHJE – ALLERGEENIT: Saat suositella VAIN näitä ${matchedProductNames.length} tuotetta: [${matchedProductNames.join(' | ')}]. ÄLÄ KOSKAAN mainitse muita tuotteita. Tämä on hengenvaarallinen turvallisuusvaatimus allergikoirille.` : '';
+    // 7. Rakenna system prompt — EI tuotewhitelistiä erikseen, se on jo buildProductContext:issa
+    const noProductInstruction = !productCtx
+      ? '\n\nOHJE: Tässä viestissä ei ole tuotetietokantahakua. Et tiedä mitä tuotteita on valikoimassa. ÄLÄ mainitse yhtään tuotteen nimeä, merkkiä tai linkkiä. Kysy ensin lisätietoja koirasta.'
+      : '';
 
-    // 4. Rakenna viestit Geminille
-    const basePrompt = (HARDCODED_PROMPT || process.env.SYSTEM_PROMPT || '') + noProductInstruction;
-    // Gemini vaatii: ensimmäinen viesti user, viimeinen user, ei peräkkäisiä samoja rooleja
-    const systemPrompt = basePrompt + catalogSummary + productWhitelistInstruction;
-    // Suodata viestit Geminille: poista johtavat assistant-viestit, varmista user-viesti lopussa
-    const filteredMessages = messages.filter((m, i) => {
-      // Poista ensimmäinen assistant-viesti (botin tervetulotoivotus)
-      if (i === 0 && m.role === 'assistant') return false;
-      return true;
-    });
-    // Varmista että viimeinen viesti on user
+    const systemPrompt = (HARDCODED_PROMPT || '') + catalogSummary + noProductInstruction;
+
+    console.log('filters:', JSON.stringify({ brand: filters.brand, excl: filters.excl, want: filters.want, age: filters.age, size: filters.size }));
+    console.log('hasFilters:', hasFilters, '| matched:', matched.length, '| exactProduct:', exactProduct?.n || null);
+
+    // 8. Rakenna viestit Geminille
+    const filteredMessages = messages.filter((m, i) => !(i === 0 && m.role === 'assistant'));
     const lastUserIdx = filteredMessages.map(m => m.role).lastIndexOf('user');
     const msgsForGemini = filteredMessages.slice(0, lastUserIdx + 1);
-    
-    // Jos ei ole user-viestejä, palauta tyhjä vastaus
+
     if (msgsForGemini.length === 0 || !msgsForGemini.some(m => m.role === 'user')) {
       return res.status(200).json({ reply: 'Moikka! Miten voin auttaa koirasi kanssa?' });
     }
 
     const geminiMessages = msgsForGemini.map((m, i) => ({
       role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: i === msgsForGemini.length - 1 && m.role === 'user' && productCtx
-        ? m.content + productCtx
-        : m.content }]
+      parts: [{
+        text: (i === msgsForGemini.length - 1 && m.role === 'user' && productCtx)
+          ? m.content + productCtx
+          : m.content
+      }]
     }));
 
-    // 5. Kutsu Gemini API
+    // 9. Kutsu Gemini API
     const apiKey = process.env.GEMINI_API_KEY;
     const model = 'gemini-2.5-flash-lite';
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
@@ -140,25 +127,23 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         system_instruction: systemPrompt ? { parts: [{ text: systemPrompt }] } : undefined,
         contents: geminiMessages,
-        generationConfig: { maxOutputTokens: 1024, temperature: 0.7 }
+        generationConfig: { maxOutputTokens: 1024, temperature: 0.5 },
       }),
     });
 
     if (!geminiRes.ok) {
       const err = await geminiRes.text();
       console.error('Gemini API error:', geminiRes.status, err.substring(0, 500));
-      return res.status(502).json({ error: `Gemini error: ${geminiRes.status} - ${err.substring(0, 200)}` });
+      return res.status(502).json({ error: `Gemini error: ${geminiRes.status}` });
     }
 
     const data = await geminiRes.json();
-    let reply = data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'Yritä uudelleen.';
-    
-
+    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'Yritä uudelleen.';
 
     return res.status(200).json({ reply });
 
   } catch (err) {
-    console.error('Handler error:', err.message);
+    console.error('Handler error:', err.message, err.stack);
     return res.status(500).json({ error: err.message });
   }
 }
