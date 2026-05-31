@@ -45,7 +45,6 @@ export default async function handler(req, res) {
     const filters = extractFilters(messages);
 
     // 3. Bränditunnistus — VAIN viimeisin käyttäjäviesti
-    let askedBrand = null; // mitä brändiä käyttäjä kysyi (myös jos ei löydy)
     if (products.length > 0) {
       const BLACKLIST = ['hauku', 'ruokakoiralle', 'koiralle', 'koira', 'ruoka', 'peten', 'zooplus', 'haukkula'];
       const vendors = [...new Set(
@@ -75,20 +74,8 @@ export default async function handler(req, res) {
 
       // Tunnista kysytty brändi vaikka ei löytyisi valikoimasta
       // Laajempi pattern: kaikki brändiviittaukset
-      if (!detectedBrand) {
-        // Tunnista brändi VAIN eksplisiittisistä brändikysymyksistä
-        // Älä osu yleisiin sanoihin kuten koira, ruoka, merkki jne.
-        const COMMON_WORDS = ['koira', 'ruoka', 'tuote', 'merkki', 'brandi', 'hinta', 'kauppa', 'pentu', 'vatsa', 'allergia'];
-        const brandQuestionMatch = latestUserText.match(
-          /(?:löytyykö|onko|entä|löytyy|haen|etsin|merkiltä|brändiltä)\s+([a-zäöå]{4,})(?:\s|$)/i
-        );
-        if (brandQuestionMatch) {
-          const candidate = brandQuestionMatch[1]?.trim();
-          if (candidate && !COMMON_WORDS.includes(candidate)) {
-            askedBrand = candidate;
-          }
-        }
-      }
+      // askedBrand-tunnistus poistettu — aiheutti liian paljon vääriä positiivisia
+      // Jos brändi ei löydy vendor-listasta, Gemini käsittelee sen normaalisti
     }
 
     // 4. Tarkka tuotenimiehaku viimeisestä käyttäjäviestistä
@@ -185,29 +172,10 @@ export default async function handler(req, res) {
     // 7. Rakenna tuotekonteksti
     let productCtx = '';
 
-    // Tarkista onko askedBrand mainittu myös aiemmissa viesteissä (kontekstin säilytys)
-    if (!askedBrand && !filters.brand) {
-      // Etsi aiemmista assistant-viesteistä maininta "X-merkkiä ei löydy"
-      const allAssistant = messages.filter(m => m.role === 'assistant').map(m => m.content).join(' ');
-      const prevNotFound = allAssistant.match(/([A-Za-zäöåÄÖÅ]{3,})-merkkiä ei löydy/);
-      if (prevNotFound) {
-        // Tarkista viittaako viimeisin käyttäjäviesti samaan brändiin
-        const mentionedBrand = norm(prevNotFound[1]);
-        if (latestUserMsg.includes(mentionedBrand) || latestUserMsg.includes('eikun') || latestUserMsg.includes('entä')) {
-          askedBrand = mentionedBrand;
-        }
-      }
-    }
-
     if (filters.brand && matched.length === 0 && !exactProduct) {
       productCtx = buildBrandNotFoundMsg(filters.brand);
     } else if (hasFilters || exactProduct) {
       productCtx = buildProductContext(matched, filters);
-    }
-
-    // Jos käyttäjä kysyi brändiä jota ei tunnistettu valikoimasta
-    if (!filters.brand && askedBrand) {
-      productCtx = buildBrandNotFoundMsg(askedBrand);
     }
 
     // 8. Valikoiman yhteenveto
@@ -232,7 +200,7 @@ export default async function handler(req, res) {
     const systemPrompt = (HARDCODED_PROMPT || '') + catalogSummary + brandCountInstruction + noProductInstruction;
 
     console.log('filters:', JSON.stringify({ brand: filters.brand, excl: filters.excl, want: filters.want, age: filters.age, size: filters.size }));
-    console.log('hasFilters:', hasFilters, '| matched:', matched.length, '| exactProduct:', exactProduct?.n || null, '| askedBrand:', askedBrand);
+    console.log('hasFilters:', hasFilters, '| matched:', matched.length, '| exactProduct:', exactProduct?.n || null);
 
     // 9. Rakenna viestit Geminille
     const filteredMessages = messages.filter((m, i) => !(i === 0 && m.role === 'assistant'));
