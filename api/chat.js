@@ -116,6 +116,7 @@ export default async function handler(req, res) {
         norm(p.m || '').includes(norm(filters.brand)) || norm(p.n || '').includes(norm(filters.brand))
       );
       console.log('COUNT QUERY: brand:', filters.brand, 'count:', brandProducts.length);
+      console.log('COUNT QUERY product names:', brandProducts.map(p => p.n).join(' | '));
       const brandDisplay = filters.brand.charAt(0).toUpperCase() + filters.brand.slice(1);
       if (brandProducts.length > 0) {
         return res.status(200).json({
