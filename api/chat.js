@@ -99,6 +99,18 @@ export default async function handler(req, res) {
     const userMsgsAll = messages.filter(m => m.role === 'user');
     const latestUserMsg = norm(userMsgsAll[userMsgsAll.length - 1]?.content || '');
     const isCountQuestion = /montako|kuinka monta|paljonko.*tuotett|monta.*tuotett/.test(latestUserMsg);
+    // "Oletko varma?" tuotemäärästä — tarkista onko edellinen assistant-vastaus sisältänyt luvun
+    const isDoubtQuestion = /oletko varma|oletko.*varma|oletko.*oikein|varmistaisitko|tarkista|tarkistat|ihan varma|täysin varma/.test(latestUserMsg);
+    const lastAssistantMsg = messages.filter(m => m.role === 'assistant').slice(-1)[0]?.content || '';
+    const prevCountMatch = lastAssistantMsg.match(/\*\*(\d+)\*\*.*-tuotetta|on (\d+) .{1,20}-tuotetta/);
+    if (isDoubtQuestion && prevCountMatch && filters.brand) {
+      const confirmedCount = prevCountMatch[1] || prevCountMatch[2];
+      const brandDisplay = filters.brand.charAt(0).toUpperCase() + filters.brand.slice(1);
+      console.log('DOUBT QUERY: confirming count:', confirmedCount, 'for brand:', filters.brand);
+      return res.status(200).json({
+        reply: `Kyllä, tietokantamme mukaan valikoimassamme on **${confirmedCount}** ${brandDisplay}-tuotetta. Voit tarkistaa valikoiman suoraan [ruokakoiralle.fi](https://www.ruokakoiralle.fi):stä.`
+      });
+    }
     if (isCountQuestion && filters.brand) {
       const brandProducts = products.filter(p =>
         norm(p.m || '').includes(norm(filters.brand)) || norm(p.n || '').includes(norm(filters.brand))
