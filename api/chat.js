@@ -95,6 +95,27 @@ export default async function handler(req, res) {
       }
     }
 
+        // 5a. Tuotemäärä-kysymys — vastaa suoraan backendistä, ei Geminiltä
+    const userMsgsAll = messages.filter(m => m.role === 'user');
+    const latestUserMsg = norm(userMsgsAll[userMsgsAll.length - 1]?.content || '');
+    const isCountQuestion = /montako|kuinka monta|paljonko.*tuotett|monta.*tuotett/.test(latestUserMsg);
+    if (isCountQuestion && filters.brand) {
+      const brandProducts = products.filter(p =>
+        norm(p.m || '').includes(norm(filters.brand)) || norm(p.n || '').includes(norm(filters.brand))
+      );
+      console.log('COUNT QUERY: brand:', filters.brand, 'count:', brandProducts.length);
+      const brandDisplay = filters.brand.charAt(0).toUpperCase() + filters.brand.slice(1);
+      if (brandProducts.length > 0) {
+        return res.status(200).json({
+          reply: `Valikoimassamme on tällä hetkellä **${brandProducts.length}** ${brandDisplay}-tuotetta.`
+        });
+      } else {
+        return res.status(200).json({
+          reply: `${brandDisplay}-merkkiä ei löydy valikoimastamme.`
+        });
+      }
+    }
+
     // 5. Lääketieteellinen esto — jos sairaus tunnistettu, EI tuotekontekstia
     const medicalBlock = detectMedicalBlock(messages);
     if (medicalBlock) {
