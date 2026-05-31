@@ -8,6 +8,24 @@ function norm(s) {
   return s.toLowerCase().replace(/[^a-zäöå ]/g, ' ').replace(/ +/g, ' ').trim();
 }
 
+// ── Sairaudet jotka vaativat eläinlääkäriä – backend estää tuotekontekstin ──
+const MEDICAL_BLOCKS = [
+  'munuain', 'munuais', 'renal', 'maksan vajaa', 'hepatic',
+  'haimatuleh', 'pankreatiit', 'diabetes', 'sydänsaira', 'sydänvika',
+  'epilepsi', 'kasvain', 'syöpä', 'hypotyreoosi', 'hypertyreoosi',
+  'cushingin', 'addisonin',
+];
+
+function detectMedicalBlock(messages) {
+  const allText = norm(messages.filter(m => m.role === 'user').map(m => m.content).join(' '));
+  return MEDICAL_BLOCKS.find(kw => allText.includes(kw)) || null;
+}
+
+// ── Brändi mainittu mutta ei löydy valikoimasta ───────────────────────────────
+function buildBrandNotFoundMsg(brandName) {
+  return `\n\n[TIETOKANTATIETO: Brändiä "${brandName}" ei löydy valikoimastamme. Kerro tämä asiakkaalle suoraan. ÄLÄ suosittele muita tuotteita ellei asiakas pyydä.]`;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -27,17 +45,17 @@ export default async function handler(req, res) {
     const filters = extractFilters(messages);
 
     // 3. Bränditunnistus — VAIN viimeisin käyttäjäviesti
-    // Näin "Entä Acana?" ei sekoitu edelliseen Riverwood-hakuun
+    let askedBrand = null; // mitä brändiä käyttäjä kysyi (myös jos ei löydy)
     if (products.length > 0) {
       const BLACKLIST = ['hauku', 'ruokakoiralle', 'koiralle', 'koira', 'ruoka', 'peten', 'zooplus', 'haukkula'];
       const vendors = [...new Set(
         products.map(p => norm(p.m || '')).filter(v => v.length >= 4 && !BLACKLIST.includes(v))
       )].sort((a, b) => b.length - a.length);
 
-      // Käytä VAIN viimeisintä käyttäjäviestiä bränditunnistukseen
       const userMsgs = messages.filter(m => m.role === 'user');
       const latestUserText = norm(userMsgs[userMsgs.length - 1]?.content || '');
 
+      // Tunnista valikoimasta löytyvä brändi
       let detectedBrand = null;
       for (const vendor of vendors) {
         const base = vendor.replace(/[^a-zäöå]/g, '');
@@ -53,20 +71,59 @@ export default async function handler(req, res) {
           break;
         }
       }
-      // Ylikirjoita aina viimeisimmän viestin brändi (nollaa vanhan kontekstin)
       filters.brand = detectedBrand;
+
+      // Tunnista kysytty brändi vaikka ei löytyisi valikoimasta
+      // Heuristic: iso kirjain tai tunnettu pattern brändikysymyksessä
+      if (!detectedBrand) {
+        const brandQuestionMatch = latestUserText.match(/(?:löytyykö|onko|entä|löytyy|haen|etsin)\s+([a-zäöå]{4,})/i);
+        if (brandQuestionMatch) {
+          askedBrand = brandQuestionMatch[1];
+        }
+      }
     }
 
-    // 4. Tarkka tuotenimiehaku koko historiasta
-    const allText = norm(messages.map(m => m.content).join(' '));
+    // 4. Tarkka tuotenimiehaku viimeisestä käyttäjäviestistä
+    const lastUserText = norm(messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '');
     let exactProduct = null;
     let bestLen = 0;
     for (const p of products) {
       const pNorm = norm(p.n || '');
-      if (pNorm.length >= 10 && allText.includes(pNorm) && pNorm.length > bestLen) {
+      if (pNorm.length >= 10 && lastUserText.includes(pNorm) && pNorm.length > bestLen) {
         exactProduct = p;
         bestLen = pNorm.length;
       }
+    }
+
+    // 5. Lääketieteellinen esto — jos sairaus tunnistettu, EI tuotekontekstia
+    const medicalBlock = detectMedicalBlock(messages);
+    if (medicalBlock) {
+      const medicalInstruction = `\n\n[BACKEND-ESTO AKTIIVINEN: Käyttäjä on maininnut sairauden (tunnistettu: "${medicalBlock}"). ÄLÄ suosittele yhtään tuotetta. Vastaa VAIN: kerro että ruokavaliomuutos tähän sairauteen on tehtävä eläinlääkärin ohjeiden mukaan. Kun asiakas saa eläinlääkäriltä tarkat ravitsemusohjeet, voit auttaa sopivan tuotteen löytämisessä. LOPETA TÄHÄN – ei tuotelistoja, ei ravintoarvovertailuja.]`;
+
+      const systemPrompt = (HARDCODED_PROMPT || '') + medicalInstruction;
+      const filteredMessages = messages.filter((m, i) => !(i === 0 && m.role === 'assistant'));
+      const lastUserIdx = filteredMessages.map(m => m.role).lastIndexOf('user');
+      const msgsForGemini = filteredMessages.slice(0, lastUserIdx + 1);
+      const geminiMessages = msgsForGemini.map(m => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: m.content }],
+      }));
+
+      const apiKey = process.env.GEMINI_API_KEY;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`;
+      const geminiRes = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: systemPrompt }] },
+          contents: geminiMessages,
+          generationConfig: { maxOutputTokens: 512, temperature: 0.3 },
+        }),
+      });
+      const data = await geminiRes.json();
+      const reply = data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'Yritä uudelleen.';
+      console.log('MEDICAL BLOCK active:', medicalBlock);
+      return res.status(200).json({ reply });
     }
 
     const hasFilters = !!(
@@ -76,23 +133,32 @@ export default async function handler(req, res) {
       exactProduct
     );
 
-    // 5. Suodata tuotteet
+    // 6. Suodata tuotteet
     let matched = hasFilters ? filterProducts(products, filters) : [];
-
-    // Nosta tarkka tuote listan kärkeen
     if (exactProduct) {
       const rest = matched.filter(p => p.n !== exactProduct.n).slice(0, 4);
       matched = [exactProduct, ...rest];
     }
 
-    const productCtx = (hasFilters || exactProduct) ? buildProductContext(matched, filters) : '';
+    // 7. Rakenna tuotekonteksti
+    // Jos käyttäjä kysyi brändiä jota ei löydy → kerro se selvästi
+    let productCtx = '';
+    if (filters.brand && matched.length === 0 && !exactProduct) {
+      productCtx = buildBrandNotFoundMsg(filters.brand);
+    } else if (hasFilters || exactProduct) {
+      productCtx = buildProductContext(matched, filters);
+    }
 
-    // 6. Rakenna valikoiman yhteenveto (dynaamisesti Shopify-datasta)
+    // Jos käyttäjä kysyi brändiä jota ei tunnistettu valikoimasta
+    if (!filters.brand && askedBrand) {
+      productCtx = buildBrandNotFoundMsg(askedBrand);
+    }
+
+    // 8. Valikoiman yhteenveto
     const productTypes = [...new Set(products.map(p => p.tt || '').filter(Boolean))];
     const brands = [...new Set(products.map(p => p.m || '').filter(Boolean))];
     const catalogSummary = `\n\n[VALIKOIMAN TIEDOT: ${products.length} tuotetta, ${brands.length} merkkiä. Tuotetyypit: ${productTypes.length > 0 ? productTypes.join(', ') : 'kuivaruoka'}. Jos asiakas kysyy tuotetyypistä jota ei listalla ole, kerro rehellisesti ettei sitä ole valikoimassa.]`;
 
-    // 7. Rakenna system prompt — EI tuotewhitelistiä erikseen, se on jo buildProductContext:issa
     const noProductInstruction = !productCtx
       ? '\n\nOHJE: Tässä viestissä ei ole tuotetietokantahakua. Et tiedä mitä tuotteita on valikoimassa. ÄLÄ mainitse yhtään tuotteen nimeä, merkkiä tai linkkiä. Kysy ensin lisätietoja koirasta.'
       : '';
@@ -100,9 +166,9 @@ export default async function handler(req, res) {
     const systemPrompt = (HARDCODED_PROMPT || '') + catalogSummary + noProductInstruction;
 
     console.log('filters:', JSON.stringify({ brand: filters.brand, excl: filters.excl, want: filters.want, age: filters.age, size: filters.size }));
-    console.log('hasFilters:', hasFilters, '| matched:', matched.length, '| exactProduct:', exactProduct?.n || null);
+    console.log('hasFilters:', hasFilters, '| matched:', matched.length, '| exactProduct:', exactProduct?.n || null, '| askedBrand:', askedBrand);
 
-    // 8. Rakenna viestit Geminille
+    // 9. Rakenna viestit Geminille
     const filteredMessages = messages.filter((m, i) => !(i === 0 && m.role === 'assistant'));
     const lastUserIdx = filteredMessages.map(m => m.role).lastIndexOf('user');
     const msgsForGemini = filteredMessages.slice(0, lastUserIdx + 1);
@@ -116,20 +182,19 @@ export default async function handler(req, res) {
       parts: [{
         text: (i === msgsForGemini.length - 1 && m.role === 'user' && productCtx)
           ? m.content + productCtx
-          : m.content
-      }]
+          : m.content,
+      }],
     }));
 
-    // 9. Kutsu Gemini API
+    // 10. Kutsu Gemini API
     const apiKey = process.env.GEMINI_API_KEY;
-    const model = 'gemini-2.5-flash-lite';
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`;
 
     const geminiRes = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        system_instruction: systemPrompt ? { parts: [{ text: systemPrompt }] } : undefined,
+        system_instruction: { parts: [{ text: systemPrompt }] },
         contents: geminiMessages,
         generationConfig: { maxOutputTokens: 1024, temperature: 0.5 },
       }),
@@ -143,7 +208,6 @@ export default async function handler(req, res) {
 
     const data = await geminiRes.json();
     const reply = data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'Yritä uudelleen.';
-
     return res.status(200).json({ reply });
 
   } catch (err) {
