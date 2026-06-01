@@ -36,7 +36,8 @@ function checkIngredientQuestion(messages, products) {
 
   // Etsi kysytty ainesosa
   const ingredientPatterns = [
-    { words: ['kana', 'kanaa', 'kanalle', 'kanasta', 'kananliha', 'kananrasva', 'broileri'], name: 'kana' },
+    { words: ['kana', 'kanaa', 'kanalle', 'kanasta', 'kananliha', 'kananrasva', 'broileri', 'siipikarja', 'siipikarjanliha'], name: 'kana' },
+    { words: ['kananmuna', 'kananmunaa', 'munanvalkuainen', 'munankeltuainen'], name: 'kananmuna' },
     { words: ['lohi', 'lohta', 'lohelle', 'lohesta', 'lohiöljy', 'lohiöljyä'], name: 'lohi' },
     { words: ['kala', 'kalaa', 'kalaöljy', 'kalajauho'], name: 'kala' },
     { words: ['nauta', 'nautaa', 'naudanliha'], name: 'nauta' },
@@ -74,6 +75,18 @@ function checkIngredientQuestion(messages, products) {
   }
   
   if (foundInAinesosat) {
+    // Erityistapaus: kana-allergiakysymys mutta löytyi vain kananmuna
+    if (askedIngredient.name === 'kana') {
+      const hasActualChicken = ['kanaliha', 'kananliha', 'kananrasva', 'broileri', 'siipikarja', 'tuore kana', 'kuivattu kana', 'kana ('].some(w => ainesosat.includes(w));
+      const hasEgg = ['kananmuna', 'kananmunia'].some(w => ainesosat.includes(w));
+      if (!hasActualChicken && hasEgg) {
+        return `**${targetProduct.n}** ei sisällä kananlihaa tai kananrasvaa, mutta sisältää **kananmunaa**.
+
+⚠️ Huom: Kana-allergia ja kananmuna-allergia ovat eri asioita. Koira voi olla allerginen kanalle mutta sietää kananmunan — tai päinvastoin. Tarkistathan eläinlääkäriltä sopiiko kananmuna koirallesi.
+
+Ainesosat: "${ainesosat.substring(0, 150)}..."`;
+      }
+    }
     return `**${targetProduct.n}** sisältää **${askedIngredient.name}a** — se löytyy ainesosaluettelosta: "${ainesosat.substring(0, 150)}..."`;
   } else if (freeFromVapaa) {
     return `**${targetProduct.n}** on merkitty vapaaksi **${askedIngredient.name}sta** allergeenilistassamme, eikä sitä löydy ainesosaluettelosta.`;
