@@ -13,7 +13,7 @@ function detectDiagnosticQuestion(messages) {
   const lastMsg = messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '';
   const t = lastMsg.toLowerCase();
   // Tunnista puhtaat diagnostiset kysymykset joissa ei ole ostoaietta
-  const isDiagnostic = /miksi|mistä johtuu|mitä tarkoittaa|onko normaalia|voiko koira|onko vaarall|syö ruohoa|nuolee|raapii|oksentaa|ripuli|kutisee|aivastaa|yskii|hengittää|juoksuttaa|silmät vuotaa|korvat haisee|täit|kirput|madot|loiset/.test(t);
+  const isDiagnostic = /miksi|mistä johtuu|mitä tarkoittaa|onko normaalia|voiko koira|onko vaarall|syö ruohoa|nuolee|raapii|oksentaa|ripuli|kutisee|aivastaa|yskii|hengittää|juoksuttaa|silmät vuotaa|korvat haisee|täit|kirput|madot|loiset|mitä.*huomioida|mitä.*ottaa huomioon|miten.*ruokinta|miten.*syöttää/.test(t);
   const hasBuyIntent = /sopii|suosittele|etsin|löytyykö|mikä ruoka|mitä ruokaa|ostan|haen|tilaan/.test(t);
   return isDiagnostic && !hasBuyIntent;
 }
