@@ -8,6 +8,16 @@ function norm(s) {
   return s.toLowerCase().replace(/[^a-zäöå ]/g, ' ').replace(/ +/g, ' ').trim();
 }
 
+// ── Diagnostiset kysymykset – ei tuotekontekstia ─────────────────────────────
+function detectDiagnosticQuestion(messages) {
+  const lastMsg = messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '';
+  const t = lastMsg.toLowerCase();
+  // Tunnista puhtaat diagnostiset kysymykset joissa ei ole ostoaietta
+  const isDiagnostic = /miksi|mistä johtuu|mitä tarkoittaa|onko normaalia|voiko koira|onko vaarall|syö ruohoa|nuolee|raapii|oksentaa|ripuli|kutisee|aivastaa|yskii|hengittää|juoksuttaa|silmät vuotaa|korvat haisee|täit|kirput|madot|loiset/.test(t);
+  const hasBuyIntent = /sopii|suosittele|etsin|löytyykö|mikä ruoka|mitä ruokaa|ostan|haen|tilaan/.test(t);
+  return isDiagnostic && !hasBuyIntent;
+}
+
 // ── Hintakysymykset – backend vastaa suoraan ──────────────────────────────────
 function detectPriceQuestion(messages) {
   const lastMsg = messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '';
@@ -120,7 +130,38 @@ export default async function handler(req, res) {
       }
     }
 
-        // 5b. Hintakysymys — vastaa suoraan backendistä
+        // 5c. Diagnostinen kysymys — ei tuotekontekstia
+    if (detectDiagnosticQuestion(messages)) {
+      console.log('DIAGNOSTIC QUESTION detected — no product context');
+      // Poista tuotekonteksti kokonaan — Gemini vastaa asiantuntijana ilman tuotesuosituksia
+      const systemPromptDiag = (HARDCODED_PROMPT || '') +
+        '
+
+[OHJE: Tämä on diagnostinen kysymys. Vastaa asiantuntijana koiran terveydestä/käyttäytymisestä. ÄLÄ suosittele tuotteita ellei asiakas erikseen pyydä.]';
+      const filteredMsgs = messages.filter((m, i) => !(i === 0 && m.role === 'assistant'));
+      const lastUserIdx = filteredMsgs.map(m => m.role).lastIndexOf('user');
+      const msgsForGemini = filteredMsgs.slice(0, lastUserIdx + 1);
+      const geminiMsgs = msgsForGemini.map(m => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: m.content }]
+      }));
+      const apiKey = process.env.GEMINI_API_KEY;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`;
+      const gRes = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: systemPromptDiag }] },
+          contents: geminiMsgs,
+          generationConfig: { maxOutputTokens: 800, temperature: 0.3 }
+        })
+      });
+      const gData = await gRes.json();
+      const reply = gData.candidates?.[0]?.content?.parts?.[0]?.text ?? 'Yritä uudelleen.';
+      return res.status(200).json({ reply });
+    }
+
+    // 5b. Hintakysymys — vastaa suoraan backendistä
     if (detectPriceQuestion(messages)) {
       console.log('PRICE QUESTION detected');
       return res.status(200).json({
