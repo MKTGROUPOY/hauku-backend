@@ -21,8 +21,7 @@ function checkIngredientQuestion(messages, products) {
   // Jos kysymyksessä on "jokin" tai "mikään" — yleinen kysymys, ei tuotekohtainen
   if (/jokin|mikään|jotkut|kaikki/.test(t)) return null;
 
-  // Etsi mainittu tuote — VAIN viimeisimmästä käyttäjäviestistä
-  // Historiasta ei haeta — estää väärän tuotteen käyttämisen
+  // Etsi mainittu tuote — ensin viimeisimmästä käyttäjäviestistä
   let targetProduct = null;
   for (const p of products) {
     const pNorm = p.n.toLowerCase();
@@ -32,7 +31,21 @@ function checkIngredientQuestion(messages, products) {
       }
     }
   }
-  if (!targetProduct) return null; // Ei tuotetta viimeisessä viestissä → ei suoraa tarkistusta
+  
+  // Pronominien ratkaisu: "sisältääkö SE" → hae edellisestä assistant-vastauksesta
+  if (!targetProduct && /\bse\b|\bsiinä\b|\bsitä\b|\bsillä\b/.test(t)) {
+    const lastAssist = messages.filter(m => m.role === 'assistant').slice(-1)[0]?.content || '';
+    for (const p of products) {
+      const pNorm = p.n.toLowerCase();
+      if (pNorm.length >= 8 && lastAssist.toLowerCase().includes(pNorm)) {
+        if (!targetProduct || pNorm.length > targetProduct.n.length) {
+          targetProduct = p;
+        }
+      }
+    }
+  }
+  
+  if (!targetProduct) return null;
 
   // Etsi kysytty ainesosa
   const ingredientPatterns = [
