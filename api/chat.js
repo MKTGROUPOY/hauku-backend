@@ -248,7 +248,7 @@ export default async function handler(req, res) {
 
     const systemPrompt = (HARDCODED_PROMPT || '') + catalogSummary + brandCountInstruction + noProductInstruction;
 
-    console.log('filters:', JSON.stringify({ brand: filters.brand, excl: filters.excl, want: filters.want, age: filters.age, size: filters.size }));
+    console.log('filters:', JSON.stringify({ brand: filters.brand, excl: filters.excl, want: filters.want, age: filters.age, size: filters.size, store: filters.store }));
     console.log('hasFilters:', hasFilters, '| matched:', matched.length, '| exactProduct:', exactProduct?.n || null);
 
     // 9. Rakenna viestit Geminille
