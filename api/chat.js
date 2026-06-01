@@ -214,6 +214,40 @@ export default async function handler(req, res) {
       return res.status(200).json({ reply: ingredientAnswer });
     }
 
+    // 5e. Yleinen ainesosahaku kaikista tuotteista — "sisältääkö jokin ruoka X?"
+    const lastUserMsgText = messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '';
+    const generalIngCheck = /sisältääkö jokin|onko teillä.*sisältää|löytyykö.*jossa on|löytyykö.*joka sisältää/.test(lastUserMsgText.toLowerCase());
+    if (generalIngCheck) {
+      const ingredientPatternsList = [
+        { words: ['bataatti', 'bataattia'], name: 'bataatti' },
+        { words: ['kana', 'kanaa'], name: 'kana' },
+        { words: ['lohi', 'lohta'], name: 'lohi' },
+        { words: ['peruna', 'perunaa'], name: 'peruna' },
+        { words: ['lammas', 'lammasta'], name: 'lammas' },
+        { words: ['ankka', 'ankkaa'], name: 'ankka' },
+        { words: ['hirvi', 'hirveä'], name: 'hirvi' },
+        { words: ['peura', 'peuraa'], name: 'peura' },
+      ];
+      const tLow = lastUserMsgText.toLowerCase();
+      const matchedPat = ingredientPatternsList.find(p => p.words.some(w => tLow.includes(w)));
+      if (matchedPat) {
+        const found = products.filter(p => {
+          const a = (p.a || '').toLowerCase();
+          return matchedPat.words.some(w => a.includes(w));
+        }).slice(0, 5);
+        if (found.length > 0) {
+          const list = found.map(p => `**${p.n}** (${p.m})`).join('\n');
+          return res.status(200).json({ reply: `Valikoimastamme löytyy ${found.length > 5 ? 'mm.' : ''} seuraavat tuotteet joiden ainesosissa mainitaan **${matchedPat.name}**:
+
+${list}
+
+📋 Tarkistathan ainesosat tuotekorteista.` });
+        } else {
+          return res.status(200).json({ reply: `Tarkistamieni tuotetietojen perusteella valikoimastamme ei löydy tuotteita joiden ainesosissa mainitaan **${matchedPat.name}**. 📋 Tarkistathan kuitenkin tuotekorteista varmuuden vuoksi.` });
+        }
+      }
+    }
+
     // 5c. Diagnostinen kysymys — ei tuotekontekstia
     if (detectDiagnosticQuestion(messages)) {
       console.log('DIAGNOSTIC QUESTION detected — no product context');
