@@ -18,14 +18,27 @@ function checkIngredientQuestion(messages, products) {
   const isIngredientCheck = /sisältääkö|onko siinä|löytyykö siitä|onko.*ainesosissa|sisältyykö|onko.*mukana/.test(t);
   if (!isIngredientCheck) return null;
 
-  // Etsi mainittu tuote (viimeisistä viesteistä)
-  const recentText = messages.slice(-6).map(m => m.content).join(' ').toLowerCase();
+  // Etsi mainittu tuote — ensin VAIN viimeisimmästä viestistä, sitten historiasta
+  const recentText = messages.slice(-4).map(m => m.content).join(' ').toLowerCase();
   let targetProduct = null;
+  
+  // Vaihe 1: hae viimeisimmästä käyttäjäviestistä
   for (const p of products) {
     const pNorm = p.n.toLowerCase();
-    if (pNorm.length >= 8 && (t.includes(pNorm) || recentText.includes(pNorm))) {
+    if (pNorm.length >= 8 && t.includes(pNorm)) {
       if (!targetProduct || pNorm.length > targetProduct.n.length) {
         targetProduct = p;
+      }
+    }
+  }
+  // Vaihe 2: jos ei löydy viimeisestä viestistä, hae historiasta
+  if (!targetProduct) {
+    for (const p of products) {
+      const pNorm = p.n.toLowerCase();
+      if (pNorm.length >= 8 && recentText.includes(pNorm)) {
+        if (!targetProduct || pNorm.length > targetProduct.n.length) {
+          targetProduct = p;
+        }
       }
     }
   }
