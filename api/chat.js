@@ -89,11 +89,15 @@ Ainesosat: "${ainesosat.substring(0, 150)}..."`;
     }
     return `**${targetProduct.n}** sisältää **${askedIngredient.name}a** — se löytyy ainesosaluettelosta: "${ainesosat.substring(0, 150)}..."`;
   } else if (freeFromVapaa) {
-    return `**${targetProduct.n}** on merkitty vapaaksi **${askedIngredient.name}sta** allergeenilistassamme, eikä sitä löydy ainesosaluettelosta.`;
+    // Tarkista silti onko kananmunaa jos kysyttiin kana-allergiasta
+    const hasEggNote = (askedIngredient.name === 'kana' && ['kananmuna', 'kananmunia'].some(w => ainesosat.includes(w))) ? '\n\n⚠️ Huomasin kuitenkin että tuote sisältää **kananmunaa**. Kana-allergia ja kananmuna-allergia ovat eri asioita — tarkistathan eläinlääkäriltä sopiiko kananmuna koirallesi.' : '';
+    return `**${targetProduct.n}** on merkitty vapaaksi **${askedIngredient.name}sta** allergeenilistassamme, eikä kanaa löydy ainesosaluettelosta.${hasEggNote}`;
   } else if (ainesosat.length > 0) {
+    // Tarkista kananmuna myös tässä
+        const hasEggNote2 = (askedIngredient.name === 'kana' && ['kananmuna', 'kananmunia'].some(w => ainesosat.includes(w))) ? '\n\n⚠️ Huomasin kuitenkin että tuote sisältää **kananmunaa**. Kana-allergia ja kananmuna-allergia ovat eri asioita — tarkistathan eläinlääkäriltä sopiiko kananmuna koirallesi.' : '';
     return `**${targetProduct.n}** ei sisällä **${askedIngredient.name}a** ainesosaluettelonsa perusteella. Ainesosat: ${ainesosat.substring(0, 200)}${ainesosat.length > 200 ? '...' : ''}
 
-📋 Tarkistathan tiedot tuotteen pakkauksesta varmuuden vuoksi.`;
+📋 Tarkistathan tiedot tuotteen pakkauksesta varmuuden vuoksi.${hasEggNote2}`;
   }
   return null;
 }
