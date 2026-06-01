@@ -225,6 +225,7 @@ export default async function handler(req, res) {
       productCtx = buildBrandNotFoundMsg(filters.brand);
     } else if (hasFilters || exactProduct) {
       productCtx = buildProductContext(matched, filters);
+      if (productCtx) console.log('CTX SAMPLE:', productCtx.substring(0, 400));
     }
 
     // 8. Valikoiman yhteenveto
