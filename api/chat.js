@@ -21,11 +21,9 @@ function checkIngredientQuestion(messages, products) {
   // Jos kysymyksessä on "jokin" tai "mikään" — yleinen kysymys, ei tuotekohtainen
   if (/jokin|mikään|jotkut|kaikki/.test(t)) return null;
 
-  // Etsi mainittu tuote — ensin VAIN viimeisimmästä viestistä, sitten historiasta
-  const recentText = messages.slice(-4).map(m => m.content).join(' ').toLowerCase();
+  // Etsi mainittu tuote — VAIN viimeisimmästä käyttäjäviestistä
+  // Historiasta ei haeta — estää väärän tuotteen käyttämisen
   let targetProduct = null;
-  
-  // Vaihe 1: hae viimeisimmästä käyttäjäviestistä
   for (const p of products) {
     const pNorm = p.n.toLowerCase();
     if (pNorm.length >= 8 && t.includes(pNorm)) {
@@ -34,18 +32,7 @@ function checkIngredientQuestion(messages, products) {
       }
     }
   }
-  // Vaihe 2: jos ei löydy viimeisestä viestistä, hae historiasta
-  if (!targetProduct) {
-    for (const p of products) {
-      const pNorm = p.n.toLowerCase();
-      if (pNorm.length >= 8 && recentText.includes(pNorm)) {
-        if (!targetProduct || pNorm.length > targetProduct.n.length) {
-          targetProduct = p;
-        }
-      }
-    }
-  }
-  if (!targetProduct) return null;
+  if (!targetProduct) return null; // Ei tuotetta viimeisessä viestissä → ei suoraa tarkistusta
 
   // Etsi kysytty ainesosa
   const ingredientPatterns = [
