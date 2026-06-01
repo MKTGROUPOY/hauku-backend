@@ -150,7 +150,7 @@ export default async function handler(req, res) {
         body: JSON.stringify({
           system_instruction: { parts: [{ text: systemPromptDiag }] },
           contents: geminiMsgs,
-          generationConfig: { maxOutputTokens: 800, temperature: 0.3 }
+          generationConfig: { maxOutputTokens: 1500, temperature: 0.3 }
         })
       });
       const gData = await gRes.json();
@@ -222,7 +222,7 @@ export default async function handler(req, res) {
         body: JSON.stringify({
           system_instruction: { parts: [{ text: systemPrompt }] },
           contents: geminiMessages,
-          generationConfig: { maxOutputTokens: 512, temperature: 0.3 },
+          generationConfig: { maxOutputTokens: 1024, temperature: 0.3 },
         }),
       });
       const data = await geminiRes.json();
@@ -321,7 +321,7 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         system_instruction: { parts: [{ text: systemPrompt }] },
         contents: geminiMessages,
-        generationConfig: { maxOutputTokens: 1024, temperature: 0.1 },
+        generationConfig: { maxOutputTokens: 2048, temperature: 0.1 },
       }),
     });
 
