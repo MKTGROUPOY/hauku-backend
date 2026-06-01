@@ -8,6 +8,80 @@ function norm(s) {
   return s.toLowerCase().replace(/[^a-zäöå ]/g, ' ').replace(/ +/g, ' ').trim();
 }
 
+// ── Suora allergeeni/ainesosa -tarkistus — ohittaa Geminin ────────────────────
+function checkIngredientQuestion(messages, products) {
+  const userMsgs = messages.filter(m => m.role === 'user');
+  const lastMsg = userMsgs[userMsgs.length - 1]?.content || '';
+  const t = lastMsg.toLowerCase();
+
+  // Tunnista "sisältääkö X tuote Y ainesosaa" -kysymykset
+  const isIngredientCheck = /sisältääkö|onko siinä|löytyykö siitä|onko.*ainesosissa|sisältyykö|onko.*mukana/.test(t);
+  if (!isIngredientCheck) return null;
+
+  // Etsi mainittu tuote (viimeisistä viesteistä)
+  const recentText = messages.slice(-6).map(m => m.content).join(' ').toLowerCase();
+  let targetProduct = null;
+  for (const p of products) {
+    const pNorm = p.n.toLowerCase();
+    if (pNorm.length >= 8 && (t.includes(pNorm) || recentText.includes(pNorm))) {
+      if (!targetProduct || pNorm.length > targetProduct.n.length) {
+        targetProduct = p;
+      }
+    }
+  }
+  if (!targetProduct) return null;
+
+  // Etsi kysytty ainesosa
+  const ingredientPatterns = [
+    { words: ['kana', 'kanaa', 'kanalle', 'kanasta', 'kananliha', 'kananrasva', 'broileri'], name: 'kana' },
+    { words: ['lohi', 'lohta', 'lohelle', 'lohesta', 'lohiöljy', 'lohiöljyä'], name: 'lohi' },
+    { words: ['kala', 'kalaa', 'kalaöljy', 'kalajauho'], name: 'kala' },
+    { words: ['nauta', 'nautaa', 'naudanliha'], name: 'nauta' },
+    { words: ['lammas', 'lammasta', 'lampaanliha'], name: 'lammas' },
+    { words: ['peruna', 'perunaa', 'perunat'], name: 'peruna' },
+    { words: ['vehnä', 'vehnää', 'gluteeni'], name: 'vehnä' },
+    { words: ['maissi', 'maissista', 'maissitärkkelys'], name: 'maissi' },
+    { words: ['herne', 'hernettä', 'herneet'], name: 'herne' },
+    { words: ['soija', 'soijaa', 'soijaproteiini'], name: 'soija' },
+    { words: ['bataatti', 'bataattia'], name: 'bataatti' },
+    { words: ['maksa', 'maksaa', 'kananmaksa', 'naudanmaksa'], name: 'maksa' },
+    { words: ['sardiini', 'sardiinia'], name: 'sardiini' },
+    { words: ['sipuli', 'sipulia', 'valkosipuli'], name: 'sipuli' },
+    { words: ['ankka', 'ankkaa', 'ankanliha'], name: 'ankka' },
+  ];
+
+  let askedIngredient = null;
+  for (const pat of ingredientPatterns) {
+    if (pat.words.some(w => t.includes(w))) {
+      askedIngredient = pat;
+      break;
+    }
+  }
+  if (!askedIngredient) return null;
+
+  // Tarkista ainesosat suoraan datasta
+  const ainesosat = (targetProduct.a || '').toLowerCase();
+  const vapaa = (targetProduct.v || []).map(x => x.toLowerCase());
+  
+  const foundInAinesosat = askedIngredient.words.some(w => ainesosat.includes(w));
+  const freeFromVapaa = vapaa.includes(askedIngredient.name);
+  
+  if (!ainesosat && vapaa.length === 0) {
+    return `Ainesosatietoja ei ole saatavilla tuotteelle **${targetProduct.n}**. Tarkistathan tiedot tuotteen pakkauksesta tai ostolinkistä ennen ostopäätöstä.`;
+  }
+  
+  if (foundInAinesosat) {
+    return `**${targetProduct.n}** sisältää **${askedIngredient.name}a** — se löytyy ainesosaluettelosta: "${ainesosat.substring(0, 150)}..."`;
+  } else if (freeFromVapaa) {
+    return `**${targetProduct.n}** on merkitty vapaaksi **${askedIngredient.name}sta** allergeenilistassamme, eikä sitä löydy ainesosaluettelosta.`;
+  } else if (ainesosat.length > 0) {
+    return `**${targetProduct.n}** ei sisällä **${askedIngredient.name}a** ainesosaluettelonsa perusteella. Ainesosat: ${ainesosat.substring(0, 200)}${ainesosat.length > 200 ? '...' : ''}
+
+📋 Tarkistathan tiedot tuotteen pakkauksesta varmuuden vuoksi.`;
+  }
+  return null;
+}
+
 // ── Diagnostiset kysymykset – ei tuotekontekstia ─────────────────────────────
 function detectDiagnosticQuestion(messages) {
   const lastMsg = messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '';
@@ -130,7 +204,14 @@ export default async function handler(req, res) {
       }
     }
 
-        // 5c. Diagnostinen kysymys — ei tuotekontekstia
+        // 5d. Suora ainesosa/allergeeni -tarkistus — ohittaa Geminin täysin
+    const ingredientAnswer = checkIngredientQuestion(messages, products);
+    if (ingredientAnswer) {
+      console.log('INGREDIENT CHECK: direct answer bypassing Gemini');
+      return res.status(200).json({ reply: ingredientAnswer });
+    }
+
+    // 5c. Diagnostinen kysymys — ei tuotekontekstia
     if (detectDiagnosticQuestion(messages)) {
       console.log('DIAGNOSTIC QUESTION detected — no product context');
       // Poista tuotekonteksti kokonaan — Gemini vastaa asiantuntijana ilman tuotesuosituksia
