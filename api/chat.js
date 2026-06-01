@@ -403,8 +403,12 @@ ${list}
       const otherMatched = matched.filter(p => !exactProducts.find(ep => ep.n === p.n));
       matched = [...exactProducts, ...otherMatched.slice(0, 2)];
     } else if (exactProduct) {
-      const rest = matched.filter(p => p.n !== exactProduct.n).slice(0, 4);
-      matched = [exactProduct, ...rest];
+      // Käytä exactProductia vain jos se läpäisi allergeeni- ja kauppasuodatuksen
+      if (matched.some(p => p.n === exactProduct.n)) {
+        const rest = matched.filter(p => p.n !== exactProduct.n).slice(0, 4);
+        matched = [exactProduct, ...rest];
+      }
+      // Jos exactProduct ei läpäissyt suodatuksia, näytetään vain filtered matched-lista
     }
 
     // 7. Rakenna tuotekonteksti
