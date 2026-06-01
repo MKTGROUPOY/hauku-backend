@@ -225,7 +225,6 @@ export default async function handler(req, res) {
       productCtx = buildBrandNotFoundMsg(filters.brand);
     } else if (hasFilters || exactProduct) {
       productCtx = buildProductContext(matched, filters);
-      if (productCtx) console.log('CTX SAMPLE:', productCtx.substring(0, 400));
     }
 
     // 8. Valikoiman yhteenveto
@@ -251,9 +250,7 @@ export default async function handler(req, res) {
 
     console.log('filters:', JSON.stringify({ brand: filters.brand, excl: filters.excl, want: filters.want, age: filters.age, size: filters.size, store: filters.store }));
     console.log('hasFilters:', hasFilters, '| matched:', matched.length, '| exactProduct:', exactProduct?.n || null);
-    if (matched.length > 0) {
-      console.log('LINK DEBUG:', matched.slice(0,3).map(p => `${p.n}: l=${!!p.l} l2=${!!p.l2} l3=${!!p.l3}`).join(' | '));
-    }
+  
 
     // 9. Rakenna viestit Geminille
     const filteredMessages = messages.filter((m, i) => !(i === 0 && m.role === 'assistant'));
