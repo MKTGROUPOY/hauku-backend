@@ -33,7 +33,7 @@ function checkIngredientQuestion(messages, products) {
   }
   
   // Pronominien ratkaisu: "sisältääkö SE" → hae edellisestä assistant-vastauksesta
-  if (!targetProduct && /\bse\b|\bsiinä\b|\bsitä\b|\bsillä\b/.test(t)) {
+  if (!targetProduct && /\bse\b|\bsiinä\b|\bsitä\b|\bsillä\b|oletko varma|ihan varma|täysin varma|mutta kananmunaa|entä kananmuna/.test(t)) {
     const lastAssist = messages.filter(m => m.role === 'assistant').slice(-1)[0]?.content || '';
     for (const p of products) {
       const pNorm = p.n.toLowerCase();
