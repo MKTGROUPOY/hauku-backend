@@ -332,7 +332,12 @@ export default async function handler(req, res) {
     }
 
     const data = await geminiRes.json();
-    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'Yritä uudelleen.';
+    let reply = data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'Yritä uudelleen.';
+    // Poista hallusinoitu tauriini-väite jos se ei tule ainesosista
+    // Gemini väittää toistuvasti tuotteiden sisältävän tauriinia vaikka sitä ei ole
+    reply = reply.replace(/,?\s*kuten tauriini[^.]*\./gi, '.');
+    reply = reply.replace(/,?\s*tauriini[a-zäöå]*[^.]*hermoston toiminta[^.]*\./gi, '.');
+    reply = reply.replace(/\s*Se sisältää myös tauriinia[^.]*\./gi, '');
     return res.status(200).json({ reply });
 
   } catch (err) {
