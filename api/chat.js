@@ -125,7 +125,7 @@ async function callGemini(systemPrompt, messages, apiKey, maxTokens = 2048) {
     body: JSON.stringify({
       system_instruction: { parts: [{ text: systemPrompt }] },
       contents: messages,
-      generationConfig: { maxOutputTokens: maxTokens, temperature: 0.2 },
+      generationConfig: { maxOutputTokens: maxTokens, temperature: 0.0 }, // KORJATTU: Lämpötila nollaan hallusinaatioiden estämiseksi
     }),
   });
   if (!res.ok) throw new Error(`Gemini ${res.status}`);
@@ -285,7 +285,10 @@ export default async function handler(req, res) {
 
     const brands = [...new Set(products.map(p => p.m || '').filter(Boolean))];
     const catalogSummary = `\n\n[VALIKOIMAN TIEDOT: ${products.length} tuotetta, ${brands.length} merkkiä. ÄLÄ mainitse tuotenimiä ilman tietokantahakua.]`;
-    const systemPrompt = (HARDCODED_PROMPT || '') + catalogSummary;
+    
+    // KORJATTU: Ehdoton sääntö ainesosien hallusinoinnin estämiseksi lisätty system promptiin
+    const antiHallucinationRule = "\n\n[EHDOTON SÄÄNTÖ: Olet botti, joka vertailee koiranruokia faktapohjaisesti. ÄLÄ KOSKAAN keksi tai arvaa tuotteiden ainesosia, etenkään allergisoivia aineita kuten kanaa. Vastaa ainesosakysymyksiin VAIN, jos ainesosat on eksplisiittisesti lueteltu täällä kontekstissa. Jos et näe tuotteen tarkkoja ainesosia tiedoissasi, vastaa aina: 'En näe tuotteen tarkkoja ainesosia järjestelmästäni, joten en voi vahvistaa asiaa. Tarkista ainesosat aina varmuuden vuoksi myyjän sivuilta tai pakkausselosteesta.']";
+    const systemPrompt = (HARDCODED_PROMPT || '') + catalogSummary + antiHallucinationRule;
 
     const filteredMessages = messages.filter((m, i) => !(i === 0 && m.role === 'assistant'));
     const lastUserIdx = filteredMessages.map(m => m.role).lastIndexOf('user');
