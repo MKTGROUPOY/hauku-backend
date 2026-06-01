@@ -433,8 +433,23 @@ ${list}
         });
       }
 
-      // A2. Ei tuloksia ollenkaan
+      // A2. Ei tuloksia — kokeile löyhemmillä rajoituksilla
       if (matched.length === 0) {
+        // Jos erikoisruokavaliot mukana, kokeile ilman niitä
+        if (filters.specialDiets?.length > 0) {
+          const filtersNoSpecial = { ...filters, specialDiets: [] };
+          const fallbackMatched = filterProducts(products, filtersNoSpecial);
+          if (fallbackMatched.length > 0) {
+            const specialNames = filters.specialDiets.join(', ');
+            const storeNames2 = { petenkoiratarvike: 'Peten Koiratarvike', haukkula: 'Koiratarvike Haukkula', zooplus: 'Zooplus' };
+            const storeName2 = filters.store ? storeNames2[filters.store] || filters.store : '';
+            const notePrefix = storeName2
+              ? `${storeName2}lta ei löydy nimenomaan ${specialNames.toLowerCase()}-merkittyjä tuotteita ilman allergeeneja. Tässä on muita sopivia vaihtoehtoja:`
+              : `Ei löydy nimenomaan ${specialNames.toLowerCase()}-merkittyjä vaihtoehtoja. Tässä on muita sopivia tuotteita:`;
+            const productList = buildDirectProductResponse(fallbackMatched, filters);
+            return res.status(200).json({ reply: notePrefix + '\n\n' + productList });
+          }
+        }
         return res.status(200).json({
           reply: 'Valikoimastamme ei löydy näillä kriteereillä sopivia tuotteita. Haluatko löyhentää jotain rajoitusta?'
         });
