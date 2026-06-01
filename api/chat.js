@@ -15,8 +15,11 @@ function checkIngredientQuestion(messages, products) {
   const t = lastMsg.toLowerCase();
 
   // Tunnista "sisältääkö X tuote Y ainesosaa" -kysymykset
+  // Vaatii SEKÄ tuote- että ainesosaviittauksen — yleinen kysymys ei laukaise
   const isIngredientCheck = /sisältääkö|onko siinä|löytyykö siitä|onko.*ainesosissa|sisältyykö|onko.*mukana/.test(t);
   if (!isIngredientCheck) return null;
+  // Jos kysymyksessä on "jokin" tai "mikään" — yleinen kysymys, ei tuotekohtainen
+  if (/jokin|mikään|jotkut|kaikki/.test(t)) return null;
 
   // Etsi mainittu tuote — ensin VAIN viimeisimmästä viestistä, sitten historiasta
   const recentText = messages.slice(-4).map(m => m.content).join(' ').toLowerCase();
