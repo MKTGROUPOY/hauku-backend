@@ -103,13 +103,16 @@ export default async function handler(req, res) {
       // Jos brändi ei löydy vendor-listasta, Gemini käsittelee sen normaalisti
     }
 
-    // 4. Tarkka tuotenimiehaku viimeisestä käyttäjäviestistä — tukee useita tuotteita
+    // 4. Tarkka tuotenimiehaku — viimeisin käyttäjäviesti JA viimeisin assistant-viesti (follow-up)
     const lastUserText = norm(messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '');
+    const lastAssistantText = norm(messages.filter(m => m.role === 'assistant').slice(-1)[0]?.content || '');
+    // Yhdistä: hae tuotenimi käyttäjältä TAI assistentin edellisestä vastauksesta
+    const searchText = lastUserText + ' ' + lastAssistantText;
     let exactProduct = null;
     let exactProducts = []; // kaikki mainitut tuotteet
     for (const p of products) {
       const pNorm = norm(p.n || '');
-      if (pNorm.length >= 10 && lastUserText.includes(pNorm)) {
+      if (pNorm.length >= 10 && searchText.includes(pNorm)) {
         exactProducts.push(p);
         if (!exactProduct || pNorm.length > norm(exactProduct.n).length) {
           exactProduct = p;
