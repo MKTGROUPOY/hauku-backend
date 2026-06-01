@@ -414,6 +414,41 @@ ${list}
     console.log('filters:', JSON.stringify({ brand: filters.brand, excl: filters.excl, want: filters.want, age: filters.age, size: filters.size, store: filters.store }));
     console.log('hasFilters:', hasFilters, '| matched:', matched.length, '| exactProduct:', exactProduct?.n || null);
 
+    // ── DEBUG BLOCK ──────────────────────────────────────────────────
+    if (filters.excl.length > 0) {
+      // 1. extractFilters tulos
+      console.log('D1_FILTERS:', JSON.stringify(filters));
+      // 2. excl-lista
+      console.log('D2_EXCL:', JSON.stringify(filters.excl));
+      // 3. Tuotteet ennen suodatusta
+      console.log('D3_TOTAL:', products.length);
+
+      // 4. Pelkkä allergeenisuodatus (ei kauppaa, ei kokoa)
+      const filtersOnlyAllergen = { ...filters, store: null, size: null, age: null };
+      const afterAllergen = filterProducts(products, filtersOnlyAllergen);
+      console.log('D4_AFTER_ALLERGEN:', afterAllergen.length);
+
+      // 5. Ensimmäiset 10 allergeenisuodatuksen jälkeen
+      const first10 = afterAllergen.slice(0, 10).map(p => ({n:p.n, p:p.p, l:!!p.l, l2:!!p.l2, l3:!!p.l3}));
+      console.log('D5_FIRST10:', JSON.stringify(first10));
+
+      // 6. Yksittäisten tuotteiden täydet tiedot
+      const targets = ['bozita light', 'rocco diet care'];
+      for (const t of targets) {
+        const found = products.find(p => p.n.toLowerCase().includes(t));
+        if (found) {
+          console.log('D6_PRODUCT_JSON:', JSON.stringify({
+            n: found.n, m: found.m, p: found.p,
+            a: (found.a||'').substring(0, 150),
+            v: found.v, er: found.er, rv: (found.rv||'').substring(0,80),
+            l: found.l||'', l2: found.l2||'', l3: found.l3||'',
+            kaupat: found.kaupat||''
+          }));
+        }
+      }
+    }
+    // ── END DEBUG ─────────────────────────────────────────────────
+
     const apiKey = process.env.GEMINI_API_KEY;
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`;
 
