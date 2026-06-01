@@ -333,11 +333,17 @@ export default async function handler(req, res) {
 
     const data = await geminiRes.json();
     let reply = data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'Yritä uudelleen.';
-    // Poista hallusinoitu tauriini-väite jos se ei tule ainesosista
-    // Gemini väittää toistuvasti tuotteiden sisältävän tauriinia vaikka sitä ei ole
+    // Poista hallusinoituja väitteitä
+    // Tauriini jota ei ole ainesosissa
     reply = reply.replace(/,?\s*kuten tauriini[^.]*\./gi, '.');
     reply = reply.replace(/,?\s*tauriini[a-zäöå]*[^.]*hermoston toiminta[^.]*\./gi, '.');
     reply = reply.replace(/\s*Se sisältää myös tauriinia[^.]*\./gi, '');
+    // Energiapitoisuudet MJ/kg ja kcal jotka eivät tule tietokannasta
+    reply = reply.replace(/\(käyttäen [^)]*energiamäärä on [\d.,]+ MJ\/kg\)/gi, '');
+    reply = reply.replace(/jonka energiamäärä on [\d.,]+ MJ\/kg/gi, '');
+    reply = reply.replace(/energiamäärä on [\d.,]+ MJ\/kg[^.]*\./gi, 'Tarkista annostus pakkauksen ohjeista.');
+    reply = reply.replace(/noin [\d]+-[\d]+ kcal päivässä[^.]*\./gi, 'Tarkista annostus pakkauksen ohjeista.');
+    reply = reply.replace(/tarvitsee noin [\d]+-[\d]+ kcal[^.]*\./gi, 'Tarkista annostus pakkauksen ohjeista.');
     return res.status(200).json({ reply });
 
   } catch (err) {
