@@ -134,10 +134,7 @@ export default async function handler(req, res) {
     if (detectDiagnosticQuestion(messages)) {
       console.log('DIAGNOSTIC QUESTION detected — no product context');
       // Poista tuotekonteksti kokonaan — Gemini vastaa asiantuntijana ilman tuotesuosituksia
-      const systemPromptDiag = (HARDCODED_PROMPT || '') +
-        '
-
-[OHJE: Tämä on diagnostinen kysymys. Vastaa asiantuntijana koiran terveydestä/käyttäytymisestä. ÄLÄ suosittele tuotteita ellei asiakas erikseen pyydä.]';
+      const systemPromptDiag = (HARDCODED_PROMPT || '') + '\n\n[OHJE: Tämä on diagnostinen kysymys. Vastaa asiantuntijana koiran terveydestä/käyttäytymisestä. ÄLÄ suosittele tuotteita ellei asiakas erikseen pyydä.]';
       const filteredMsgs = messages.filter((m, i) => !(i === 0 && m.role === 'assistant'));
       const lastUserIdx = filteredMsgs.map(m => m.role).lastIndexOf('user');
       const msgsForGemini = filteredMsgs.slice(0, lastUserIdx + 1);
