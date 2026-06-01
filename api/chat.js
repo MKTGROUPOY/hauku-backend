@@ -1,6 +1,6 @@
 // api/chat.js — Hauku backend (Vercel serverless) — Gemini API
 
-import { extractFilters, filterProducts, buildProductContext } from '../lib/filters.js';
+import { extractFilters, filterProducts, buildProductContext, buildDirectProductResponse } from '../lib/filters.js';
 import { getProducts } from '../lib/shopify.js';
 import { SYSTEM_PROMPT as HARDCODED_PROMPT } from '../lib/system-prompt.js';
 
@@ -411,91 +411,122 @@ ${list}
       // Jos exactProduct ei läpäissyt suodatuksia, näytetään vain filtered matched-lista
     }
 
-    // 7. Rakenna tuotekonteksti
-    let productCtx = '';
-
-    if (filters.brand && matched.length === 0 && !exactProduct) {
-      productCtx = buildBrandNotFoundMsg(filters.brand);
-    } else if (hasFilters || exactProduct) {
-      productCtx = buildProductContext(matched, filters);
-    }
-
-    // 8. Valikoiman yhteenveto
-    const productTypes = [...new Set(products.map(p => p.tt || '').filter(Boolean))];
-    const brands = [...new Set(products.map(p => p.m || '').filter(Boolean))];
-    const catalogSummary = `\n\n[VALIKOIMAN TIEDOT: ${products.length} tuotetta, ${brands.length} merkkiä. Tuotetyypit: ${productTypes.length > 0 ? productTypes.join(', ') : 'kuivaruoka'}. Jos asiakas kysyy tuotetyypistä jota ei listalla ole, kerro rehellisesti ettei sitä ole valikoimassa.]`;
-
-    // Injektoi tarkka tuotemäärä system promptiin jos brändi tunnistettu
-    // Näin Gemini tietää oikean luvun eikä voi keksiä uutta
-    const brandCountInstruction = filters.brand ? (() => {
-      const brandProducts = products.filter(p =>
-        norm(p.m || '').includes(norm(filters.brand)) || norm(p.n || '').includes(norm(filters.brand))
-      );
-      const brandDisplay = filters.brand.charAt(0).toUpperCase() + filters.brand.slice(1);
-      return `\n\n[TIETOKANTAFAKTA – ÄLÄ MUUTA: ${brandDisplay}-tuotteita on valikoimassamme TASAN ${brandProducts.length} kappaletta. Jos asiakas kysyy montako tai kyseenalaistaa luvun, vastaa AINA ${brandProducts.length}. Älä koskaan sano muuta lukua.]`;
-    })() : '';
-
-    const noProductInstruction = !productCtx
-      ? '\n\nOHJE: Tässä viestissä ei ole tuotetietokantahakua. Et tiedä mitä tuotteita on valikoimassa. ÄLÄ mainitse yhtään tuotteen nimeä, merkkiä tai linkkiä. Kysy ensin lisätietoja koirasta.'
-      : '';
-
-    const systemPrompt = (HARDCODED_PROMPT || '') + catalogSummary + brandCountInstruction + noProductInstruction;
-
     console.log('filters:', JSON.stringify({ brand: filters.brand, excl: filters.excl, want: filters.want, age: filters.age, size: filters.size, store: filters.store }));
     console.log('hasFilters:', hasFilters, '| matched:', matched.length, '| exactProduct:', exactProduct?.n || null);
-  
 
-    // 9. Rakenna viestit Geminille
+    const apiKey = process.env.GEMINI_API_KEY;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`;
+
+    // ═══════════════════════════════════════════════════════════════════
+    // REITTI A: TUOTESUOSITUS — backend on ainoa totuuden lähde
+    // Gemini kirjoittaa VAIN lyhyen introtekstin, backend generoi tuotelistan
+    // ═══════════════════════════════════════════════════════════════════
+    if (hasFilters) {
+
+      // A1. Brändi löydetty mutta ei tuotteita
+      if (filters.brand && matched.length === 0 && !exactProduct) {
+        const brandDisplay = filters.brand.charAt(0).toUpperCase() + filters.brand.slice(1);
+        return res.status(200).json({
+          reply: `${brandDisplay}-merkkiä ei löydy valikoimastamme.`
+        });
+      }
+
+      // A2. Ei tuloksia ollenkaan
+      if (matched.length === 0) {
+        return res.status(200).json({
+          reply: 'Valikoimastamme ei löydy näillä kriteereillä sopivia tuotteita. Haluatko löyhentää jotain rajoitusta?'
+        });
+      }
+
+      // A3. Tuotteita löytyi — backend generoi tuotelistan
+      const productList = buildDirectProductResponse(matched, filters);
+
+      // A4. Pyydä Geminiltä vain lyhyt intro — EI tuotenimiä, EI ravintoarvoja
+      const storeNames = { petenkoiratarvike: 'Peten Koiratarvike', haukkula: 'Koiratarvike Haukkula', zooplus: 'Zooplus' };
+      const introContextParts = [];
+      if (filters.excl.length)  introContextParts.push(`poissuljetut allergeenit: ${filters.excl.join(', ')}`);
+      if (filters.store)        introContextParts.push(`kauppa: ${storeNames[filters.store] || filters.store}`);
+      if (filters.age && filters.age !== 'Kaikki') introContextParts.push(`koiran ikä: ${filters.age}`);
+      if (filters.size && filters.size !== 'Kaikki') introContextParts.push(`koiran koko: ${filters.size}`);
+      if (filters.brand)        introContextParts.push(`merkki: ${filters.brand}`);
+      const introContext = introContextParts.length > 0 ? `[Hakukonteksti: ${introContextParts.join(', ')}]` : '';
+      const lastUserContent = messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '';
+      const introCount = matched.length;
+
+      const introSystemPrompt = `Olet Hauku, koira-asiantuntija. Kirjoita lyhyt 1-2 lauseen intro-teksti asiakkaalle suomeksi.
+SALLITTU: Yleinen kommentti tilanteesta. Voit mainita löydettyjen tuotteiden lukumäärän (${introCount} kpl).
+KIELLETTY: tuotenimet, brändit, ravintoarvot, ainesosat, linkit, prosenttiluvut.
+Palauta VAIN validia JSON muodossa ilman markdown-formaattia: {"intro": "teksti tähän"}`;
+
+      let intro = '';
+      try {
+        const introRes = await fetch(geminiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            system_instruction: { parts: [{ text: introSystemPrompt }] },
+            contents: [{ role: 'user', parts: [{ text: lastUserContent + '\n\n' + introContext }] }],
+            generationConfig: { maxOutputTokens: 150, temperature: 0.3 }
+          })
+        });
+        if (introRes.ok) {
+          const introData = await introRes.json();
+          const rawText = introData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          const clean = rawText.replace(/```json|```/g, '').trim();
+          const parsed = JSON.parse(clean);
+          if (typeof parsed.intro === 'string' && parsed.intro.length > 5) {
+            intro = parsed.intro;
+          }
+        }
+      } catch (e) {
+        console.log('Intro generation failed, using product list only:', e.message);
+      }
+
+      const reply = intro ? intro + '\n\n' + productList : productList;
+      return res.status(200).json({ reply });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // REITTI B: YLEINEN KOIRAKYSYMYS — Gemini vastaa normaalisti
+    // Ei tuotedataa, ei tuotenimiä, ei ravintoarvoja
+    // ═══════════════════════════════════════════════════════════════════
+    const productTypes = [...new Set(products.map(p => p.tt || '').filter(Boolean))];
+    const brands = [...new Set(products.map(p => p.m || '').filter(Boolean))];
+    const catalogSummary = `\n\n[VALIKOIMAN TIEDOT: ${products.length} tuotetta, ${brands.length} merkkiä. Jos asiakas kysyy tuotetyypistä jota ei ole, kerro rehellisesti. ÄLÄ mainitse yhtään tuotteen nimeä – kysy ensin lisätietoja koirasta.]`;
+
+    const systemPrompt = (HARDCODED_PROMPT || '') + catalogSummary;
+
     const filteredMessages = messages.filter((m, i) => !(i === 0 && m.role === 'assistant'));
     const lastUserIdx = filteredMessages.map(m => m.role).lastIndexOf('user');
-    const msgsForGemini = filteredMessages.slice(0, lastUserIdx + 1);
 
-    if (msgsForGemini.length === 0 || !msgsForGemini.some(m => m.role === 'user')) {
+    if (lastUserIdx === -1) {
       return res.status(200).json({ reply: 'Moikka! Miten voin auttaa koirasi kanssa?' });
     }
 
-    const geminiMessages = msgsForGemini.map((m, i) => ({
+    const msgsForGemini = filteredMessages.slice(0, lastUserIdx + 1);
+    const geminiMessages = msgsForGemini.map(m => ({
       role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{
-        text: (i === msgsForGemini.length - 1 && m.role === 'user' && productCtx)
-          ? m.content + productCtx
-          : m.content,
-      }],
+      parts: [{ text: m.content }],
     }));
 
-    // 10. Kutsu Gemini API
-    const apiKey = process.env.GEMINI_API_KEY;
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`;
-
-    const geminiRes = await fetch(url, {
+    const geminiRes = await fetch(geminiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         system_instruction: { parts: [{ text: systemPrompt }] },
         contents: geminiMessages,
-        generationConfig: { maxOutputTokens: 4096, temperature: 0.1 },
+        generationConfig: { maxOutputTokens: 2048, temperature: 0.3 },
       }),
     });
 
     if (!geminiRes.ok) {
       const err = await geminiRes.text();
-      console.error('Gemini API error:', geminiRes.status, err.substring(0, 500));
+      console.error('Gemini API error:', geminiRes.status, err.substring(0, 200));
       return res.status(502).json({ error: `Gemini error: ${geminiRes.status}` });
     }
 
     const data = await geminiRes.json();
-    let reply = data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'Yritä uudelleen.';
-    // Poista hallusinoituja väitteitä
-    // Tauriini jota ei ole ainesosissa
-    reply = reply.replace(/,?\s*kuten tauriini[^.]*\./gi, '.');
-    reply = reply.replace(/,?\s*tauriini[a-zäöå]*[^.]*hermoston toiminta[^.]*\./gi, '.');
-    reply = reply.replace(/\s*Se sisältää myös tauriinia[^.]*\./gi, '');
-    // Energiapitoisuudet MJ/kg ja kcal jotka eivät tule tietokannasta
-    reply = reply.replace(/\(käyttäen [^)]*energiamäärä on [\d.,]+ MJ\/kg\)/gi, '');
-    reply = reply.replace(/jonka energiamäärä on [\d.,]+ MJ\/kg/gi, '');
-    reply = reply.replace(/energiamäärä on [\d.,]+ MJ\/kg[^.]*\./gi, 'Tarkista annostus pakkauksen ohjeista.');
-    reply = reply.replace(/noin [\d]+-[\d]+ kcal päivässä[^.]*\./gi, 'Tarkista annostus pakkauksen ohjeista.');
-    reply = reply.replace(/tarvitsee noin [\d]+-[\d]+ kcal[^.]*\./gi, 'Tarkista annostus pakkauksen ohjeista.');
+    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'Yritä uudelleen.';
     return res.status(200).json({ reply });
 
   } catch (err) {
