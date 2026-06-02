@@ -36,6 +36,22 @@ function checkIngredientQuestion(messages, products) {
       }
     }
   }
+  // Monituotekysymys: "sisältävätkö jokin/joku näistä X?" → vastaa allergeenisuodatuksella
+  if (!targetProduct && /jokin|joku|näistä|niistä|yksikään/.test(t)) {
+    const quickPats = [
+      { words: ['kana', 'kanaa', 'broileri'], name: 'kana' },
+      { words: ['kala', 'kalaa', 'kalaöljy', 'lohi', 'lohta'], name: 'kala tai lohi' },
+      { words: ['nauta', 'nautaa'], name: 'nauta' },
+      { words: ['lammas', 'lammasta'], name: 'lammas' },
+      { words: ['vehnä', 'vehnää', 'gluteeni'], name: 'vehnä' },
+    ];
+    const matchedQ = quickPats.find(p => p.words.some(w => t.includes(w)));
+    if (matchedQ) {
+      // Kaikki suositellut tuotteet on jo suodatettu allergeenien mukaan
+      const exclList = messages._excl || [];
+      return `Ei — suositellut tuotteet on suodatettu niin että **${matchedQ.name}** on poissuljettu. Kaikki näyttämäni tuotteet ovat vapaita ilmoittamistasi allergeeneista. 📋 Tarkistathan ainesosat pakkauksesta varmuuden vuoksi.`;
+    }
+  }
   if (!targetProduct) return null;
 
   const ingredientPatterns = [
