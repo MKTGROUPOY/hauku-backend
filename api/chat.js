@@ -247,11 +247,17 @@ export default async function handler(req, res) {
       return res.status(200).json({ reply: 'Palvelussamme ei ole hintatietoja. Näet hinnat suoraan ostolinkistä verkkokauppaan.' });
     }
 
-    // 5. Tuotemäärä
+    // 5. Tuotemäärä — käytä samaa normalisointia kuin bränditunnistus
     const latestUserMsg = norm(messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '');
     if (/montako|kuinka monta|paljonko.*tuotett/.test(latestUserMsg) && filters.brand) {
-      const brandProducts = products.filter(p => norm(p.m || '').includes(norm(filters.brand)) || norm(p.n || '').includes(norm(filters.brand)));
+      const bNorm = norm(filters.brand);
+      const brandProducts = products.filter(p =>
+        norm(p.m || '').includes(bNorm) || norm(p.n || '').includes(bNorm)
+      );
       const brandDisplay = filters.brand.charAt(0).toUpperCase() + filters.brand.slice(1);
+      if (brandProducts.length === 0) {
+        return res.status(200).json({ reply: `${brandDisplay}-tuotteita ei löydy valikoimastamme.` });
+      }
       return res.status(200).json({ reply: `Valikoimassamme on tällä hetkellä **${brandProducts.length}** ${brandDisplay}-tuotetta.` });
     }
 
