@@ -75,27 +75,52 @@ function extractProductsFromLastAssistant(messages, allProducts) {
     }
   }
 
-  // Prioriteetti 2: Skannaa taaksepäin → etsi viesti jossa on tuotelista ("Löysin")
+  // Prioriteetti 2: Skannaa taaksepäin → etsi viesti jossa on tuotelista
+  // Tunnistetaan tuotelista: sisältää "Löysin" tai "🛒" (ostolinkkiä)
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
     if (m.role !== 'assistant') continue;
     const content = m.content || '';
-    // Tunnista tuotelista: sisältää "Löysin" tai useita tuotenimiä
+
     const isProductList = content.includes('Löysin') || content.includes('löysin') ||
-      content.includes('sopivaa tuotetta') || content.includes('valikoimassamme');
+      content.includes('🛒') || content.includes('sopivaa tuotetta');
     if (!isProductList) continue;
 
     const cleanedContent = content.replace(/<hauku_data>[\s\S]*?<\/hauku_data>/g, '');
-    const contentNorm = norm(cleanedContent);
+
+    // Poimi tuotenimet riveiltä jotka edeltävät "Proteiinit:" tai "Rasvapitoisuus:" tai "🛒"
+    const productNames = [];
+    const lines = cleanedContent.split('\n');
+    for (let j = 0; j < lines.length; j++) {
+      const line = lines[j];
+      const nextLine = lines[j + 1] || '';
+      // Tuotenimi on rivillä jota seuraa proteiini/rasvapitoisuus/ostolinkki-rivi
+      if (/Proteiinit:|Rasvapitoisuus:|🛒/.test(nextLine)) {
+        // Poista markdown-muotoilu (**tuotenimi**)
+        const name = line.replace(/\*\*/g, '').trim();
+        if (name.length >= 5) productNames.push(name);
+      }
+    }
+
+    // Hae täsmälliset tuotteet Shopifysta nimillä
     const found = [];
-    for (const p of allProducts) {
-      const pNorm = norm(p.n || '');
-      if (pNorm.length >= 10 && contentNorm.includes(pNorm)) found.push(p);
+    for (const name of productNames) {
+      const nameNorm = norm(name);
+      const match = allProducts.find(p => norm(p.n || '') === nameNorm);
+      if (match) found.push(match);
     }
-    if (found.length > 0) {
-      found.sort((a, b) => contentNorm.indexOf(norm(a.n)) - contentNorm.indexOf(norm(b.n)));
-      return found.slice(0, 5);
+
+    // Fallback: skannaa koko teksti tuotenimillä
+    if (found.length === 0) {
+      const contentNorm = norm(cleanedContent);
+      for (const p of allProducts) {
+        const pNorm = norm(p.n || '');
+        if (pNorm.length >= 10 && contentNorm.includes(pNorm)) found.push(p);
+      }
+      found.sort((a, b) => norm(cleanedContent).indexOf(norm(a.n)) - norm(cleanedContent).indexOf(norm(b.n)));
     }
+
+    if (found.length > 0) return found.slice(0, 5);
   }
 
   return [];
@@ -111,8 +136,8 @@ function detectFollowUp(latestUserMsg) {
   const isNewSearch = /löytyykö|etsi |suosittele|näytä|hae |mitä ruokaa|sopivaa ruokaa|onko teillä|löytyy.*allergi|vaihtoehto.*allergi/.test(t);
   if (isNewSearch) return false;
 
-  // Pronominit ja järjestysnumerot (kaikki suomen muodot)
-  const hasRef = /\b(eka|toka|tokassa|tokaan|kolmas|kolmannessa|vika|vikassa|ensimmäinen|ensimmäisessä|toinen|toisessa|toiseen|tuossa|tuohon|tässä|tähän|siinä|siihen|siitä|sillä|näissä|niissä|noissa|tuo\b|tämä\b|\bse\b)\b/i.test(latestUserMsg);
+  // Pronominit ja järjestysnumerot (kaikki suomen muodot) + jatkosignaalisanat
+  const hasRef = /\b(eka|toka|tokassa|tokaan|kolmas|kolmannessa|vika|vikassa|ensimmäinen|ensimmäisessä|toinen|toisessa|toiseen|tuossa|tuohon|tässä|tähän|siinä|siihen|siitä|sillä|näissä|niissä|noissa|tuo|tämä|\bse\b|entä|miten|mites)\b/i.test(latestUserMsg);
   const isComparison = /kummassa|kumpi|enemmän|vähemmän|parempi.*näistä|kumpi.*näistä|vertaa/.test(t);
 
   return hasRef || isComparison;
