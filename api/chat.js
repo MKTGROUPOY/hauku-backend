@@ -70,30 +70,31 @@ function extractProductsFromLastAssistant(messages, allProducts) {
 }
 
 // ── KORJAUS 2: Follow-up tunnistus ──────────────────────────────────────
-function isFollowUpQuestion(latestUserMsg, lockedProducts) {
-  if (!lockedProducts?.length) return false;
+// KRIITTINEN: Regex-pohjainen follow-up tunnistus — ei riippuvainen lockedProducts-löydöksistä
+// Pronominit ja järjestysnumero-viittaukset YLIAJAVAT aina uuden haun
+function detectFollowUp(latestUserMsg) {
   const t = norm(latestUserMsg);
 
-  // Suoran viittauksen sanat
-  const hasOrdinal = /(eka|tois|kolm|nelj|viid|vika|viimei|listalla|listattu|ehdottamasi|suosittelemasi)/.test(t);
-  const hasPronoun = /\b(se|toi|siinä|tässä|noissa|näistä|niistä|sillä|siitä|niillä|niistä)\b/.test(t);
-
-  // Selkeät uuden haun signaalit — NÄMÄ ohittavat follow-up tunnistuksen
-  const isNewSearch = /löytyykö|etsi|suosittele|näytä|hae|mitä ruokaa|sopivaa ruokaa|onko teillä|löytyy.*allergi|vaihtoehto.*allergi/.test(t);
-
+  // Selkeät uuden haun signaalit — estävät false positivet
+  const isNewSearch = /löytyykö|etsi |suosittele|näytä|hae |mitä ruokaa|sopivaa ruokaa|onko teillä|löytyy.*allergi|vaihtoehto.*allergi/.test(t);
   if (isNewSearch) return false;
-  return hasOrdinal || hasPronoun;
+
+  // Pronominit ja järjestysnumerot (kaikki suomen muodot)
+  const hasRef = /\b(eka|toka|tokassa|tokaan|kolmas|kolmannessa|vika|vikassa|ensimmäinen|ensimmäisessä|toinen|toisessa|toiseen|tuossa|tuohon|tässä|tähän|siinä|siihen|siitä|sillä|näissä|niissä|noissa|tuo\b|tämä\b|\bse\b)\b/i.test(latestUserMsg);
+  const isComparison = /kummassa|kumpi|enemmän|vähemmän|parempi.*näistä|kumpi.*näistä|vertaa/.test(t);
+
+  return hasRef || isComparison;
 }
 
 function resolveOrdinalProduct(text, prods) {
   if (!prods?.length) return null;
   const t = norm(text);
-  if (/eka|ensimm|yhd[ea]/.test(t)) return prods[0];
-  if (/tois/.test(t)) return prods[1] || null;
-  if (/kolm/.test(t)) return prods[2] || null;
-  if (/nelj/.test(t)) return prods[3] || null;
-  if (/viid/.test(t)) return prods[4] || null;
-  if (/vik[ao]|viimei/.test(t)) return prods[prods.length - 1];
+  if (/\beka\b|ensimm|\byks\b/.test(t)) return prods[0];
+  if (/\btok|\btoinen\b|toisess|toiseen/.test(t)) return prods[1] || null;
+  if (/\bkolm/.test(t)) return prods[2] || null;
+  if (/\bnelj/.test(t)) return prods[3] || null;
+  if (/\bviid/.test(t)) return prods[4] || null;
+  if (/\bvik[ao]|viimei/.test(t)) return prods[prods.length - 1];
   return null;
 }
 
@@ -114,12 +115,15 @@ export default async function handler(req, res) {
     const latestUserMsg = messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '';
     const latestUserNorm = norm(latestUserMsg);
 
-    // ── KORJAUS 2+3: FOLLOW-UP REITTI ────────────────────────────────────
-    // Ennen kaikkea muuta: onko tämä jatkokysymys aiemmasta listasta?
-    const lockedProducts = extractProductsFromLastAssistant(messages, products);
-    if (isFollowUpQuestion(latestUserMsg, lockedProducts)) {
+    // ── FOLLOW-UP REITTI — KRIITTINEN: ENNEN extractFilters/filterProducts ──
+    // detectFollowUp on TÄYSIN regex-pohjainen — ei riipu lockedProducts-löydöksistä
+    // Pronominit ja järjestysnumerot YLIAJAVAT aina uuden haun
+    const isFollowUp = detectFollowUp(latestUserMsg);
+    const lockedProducts = isFollowUp ? extractProductsFromLastAssistant(messages, products) : [];
+
+    if (isFollowUp) {
       const ordinalProduct = resolveOrdinalProduct(latestUserMsg, lockedProducts);
-      const contextProds = ordinalProduct ? [ordinalProduct] : lockedProducts;
+      const contextProds = (ordinalProduct ? [ordinalProduct] : lockedProducts).filter(Boolean);
 
       // Rakenna täysi product context Shopify-datasta
       const productCtx = buildProductContext(contextProds, {});
