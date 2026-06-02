@@ -1,6 +1,7 @@
 // api/chat.js — Hauku backend v4 (Vercel serverless)
 
 import { extractFilters, filterProducts, buildProductContext, buildDirectProductResponse } from '../lib/filters.js';
+import { saveSession, loadSession } from '../lib/kv-session.js';
 import { getProducts } from '../lib/shopify.js';
 import { SYSTEM_PROMPT as HARDCODED_PROMPT } from '../lib/system-prompt.js';
 
@@ -178,7 +179,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const { messages } = req.body;
+    const { messages, conversationId } = req.body;
     if (!messages?.length) return res.status(400).json({ error: 'messages required' });
 
     const apiKey = process.env.GEMINI_API_KEY;
@@ -205,53 +206,68 @@ export default async function handler(req, res) {
     if (isFollowUp) {
       // ══ PUHDAS KONTEKSTIRUISKUTUS ══════════════════════════════════════
       // filterProducts() ja extractFilters() EIVÄT AJA tässä haarassa
-      // Ainoastaan: historia → konteksti → Gemini
 
-      // 1. Etsi viimeisin tuotelista historiasta (taaksepäin)
-      let productListText = '';
-      for (let i = messages.length - 1; i >= 0; i--) {
-        const m = messages[i];
-        if (m.role !== 'assistant') continue;
-        const c = (m.content || '').replace(/<hauku_data>[\s\S]*?<\/hauku_data>/g, '');
-        if (c.includes('Löysin') || c.includes('löysin') || c.includes('🛒')) {
-          productListText = c.trim();
-          break;
+      // 1. Yritä ladata sessio Vercel KV:sta (luotettavin lähde)
+      let sessionProducts = conversationId ? await loadSession(conversationId) : null;
+      let enriched = [];
+      let listedNames = [];
+
+      if (sessionProducts?.length > 0) {
+        // KV löytyi — käytä suoraan
+        listedNames = sessionProducts.map(p => p.n);
+        enriched = sessionProducts.map(p => {
+          let rv = p.rv || '';
+          try { const x = JSON.parse(rv); rv = Array.isArray(x) ? x[0] : String(x); } catch {}
+          rv = rv.replace(/^\["|"\]$/g, '').trim();
+          return [
+            `Tuote: ${p.n}`,
+            p.p?.length  ? `Proteiinit: ${p.p.join(', ')}` : '',
+            p.rl         ? `Rasvapitoisuus: ${p.rl}` : '',
+            p.a          ? `Ainesosat: ${p.a}` : '',
+            rv           ? `Ravintoarvot: ${rv}` : '',
+            p.er?.length ? `Sopii: ${p.er.join(', ')}` : '',
+          ].filter(Boolean).join('\n');
+        });
+      } else {
+        // KV ei saatavilla tai tyhjä → skannaa historia (fallback)
+        let productListText = '';
+        for (let i = messages.length - 1; i >= 0; i--) {
+          const m = messages[i];
+          if (m.role !== 'assistant') continue;
+          const c = (m.content || '').replace(/<hauku_data>[\s\S]*?<\/hauku_data>/g, '');
+          if (c.includes('Löysin') || c.includes('löysin') || c.includes('🛒')) {
+            productListText = c.trim(); break;
+          }
         }
+        productListText.split('\n').forEach((line, i, arr) => {
+          const next = (arr[i + 1] || '').toLowerCase();
+          if (/proteiinit:|rasvapitoisuus:|🛒/.test(next)) {
+            const name = line.replace(/\*\*/g, '').trim();
+            if (name.length >= 5) listedNames.push(name);
+          }
+        });
+        enriched = listedNames.map(name => {
+          const nameLow = name.toLowerCase();
+          const p = products.find(prod =>
+            nameLow.includes((prod.n || '').toLowerCase()) ||
+            (prod.n || '').toLowerCase().includes(nameLow)
+          );
+          if (!p) return `Tuote: ${name}`;
+          let rv = p.rv || '';
+          try { const x = JSON.parse(rv); rv = Array.isArray(x) ? x[0] : String(x); } catch {}
+          rv = rv.replace(/^\["|"\]$/g, '').trim();
+          return [
+            `Tuote: ${p.n}`,
+            p.p?.length  ? `Proteiinit: ${p.p.join(', ')}` : '',
+            p.rl         ? `Rasvapitoisuus: ${p.rl}` : '',
+            p.a          ? `Ainesosat: ${p.a}` : '',
+            rv           ? `Ravintoarvot: ${rv}` : '',
+            p.er?.length ? `Sopii: ${p.er.join(', ')}` : '',
+          ].filter(Boolean).join('\n');
+        });
       }
 
-      // 2. Pura tuotenimet historiasta (pelkkä teksti, ei tietokantahaku)
-      const listedNames = [];
-      productListText.split('\n').forEach((line, i, arr) => {
-        const next = (arr[i + 1] || '').toLowerCase();
-        if (/proteiinit:|rasvapitoisuus:|🛒/.test(next)) {
-          const name = line.replace(/\*\*/g, '').trim();
-          if (name.length >= 5) listedNames.push(name);
-        }
-      });
-
-      // 3. Rikastus: hae Shopify-datasta täydet ainesosat + ravintoarvot
-      //    (products on jo muistissa — ei uutta API-kutsua)
-      const enriched = listedNames.map(name => {
-        const nameLow = name.toLowerCase();
-        const p = products.find(prod =>
-          nameLow.includes((prod.n || '').toLowerCase()) ||
-          (prod.n || '').toLowerCase().includes(nameLow)
-        );
-        if (!p) return `Tuote: ${name}`;
-        let rv = p.rv || '';
-        try { const parsed = JSON.parse(rv); rv = Array.isArray(parsed) ? parsed[0] : String(parsed); } catch {}
-        rv = rv.replace(/^\["|"\]$/g, '').trim();
-        return [
-          `Tuote: ${p.n}`,
-          p.p?.length  ? `Proteiinit: ${p.p.join(', ')}` : '',
-          p.rl         ? `Rasvapitoisuus: ${p.rl}` : '',
-          p.a          ? `Ainesosat: ${p.a}` : '',
-          rv           ? `Ravintoarvot: ${rv}` : '',
-          p.er?.length ? `Sopii: ${p.er.join(', ')}` : '',
-        ].filter(Boolean).join('\n');
-      });
-
-      // 4. Numeroitu järjestys + rikastettu data → Gemini-konteksti
+      // Numeroitu järjestys
       const numberedList = listedNames.map((n, i) =>
         `${i + 1} = ${n} (eka=1, toka=2, kolmas=3, vika=viimeinen)`
       ).join('\n');
@@ -260,7 +276,7 @@ export default async function handler(req, res) {
         '\n\n[KONTEKSTI — käytä vain tätä, älä etsi tietokannasta]\n' +
         (enriched.length > 0
           ? 'TUOTTEIDEN TÄYDET TIEDOT:\n' + enriched.join('\n---\n') + '\n'
-          : 'TUOTELISTA:\n' + productListText + '\n') +
+          : '[Ei tuotedataa — vastaa keskusteluhistorian perusteella]\n') +
         (numberedList ? '\nJÄRJESTYS: ' + numberedList + '\n' : '');
 
       const followUpSystemPrompt = (HARDCODED_PROMPT || '') +
@@ -445,6 +461,15 @@ export default async function handler(req, res) {
     if (hasFilters) {
       if (filters.brand && matched.length === 0 && !exactProduct) {
         const brandDisplay = filters.brand.charAt(0).toUpperCase() + filters.brand.slice(1);
+        // Tarkista löytyykö brändi ylipäätään (ennen allergeenisuodatusta)
+        const bNormCheck = norm(filters.brand);
+        const brandExistsInDb = products.some(p =>
+          norm(p.m || '').includes(bNormCheck) || norm(p.n || '').includes(bNormCheck)
+        );
+        if (brandExistsInDb && filters.excl.length > 0) {
+          // Brändi löytyy mutta allergeenisuodatus poisti kaikki tuotteet
+          return res.status(200).json({ reply: `${brandDisplay}-tuotteita löytyy valikoimastamme, mutta ne sisältävät yhden tai useamman poissuljetun allergeenin (${filters.excl.join(', ')}). Siksi ne eivät sovi koirallesi näillä rajoituksilla.` });
+        }
         return res.status(200).json({ reply: `${brandDisplay}-merkkiä ei löydy valikoimastamme.` });
       }
       if (matched.length === 0) {
@@ -507,6 +532,10 @@ Palauta VAIN JSON: {"intro":"teksti tähän"}`;
       }));
       const hiddenData = '\n<hauku_data>' + JSON.stringify(contextProducts) + '</hauku_data>';
       const reply = (intro ? intro + '\n\n' + productList : productList) + hiddenData;
+      // Tallenna sessio KV:hen jatkokysymyksiä varten
+      if (conversationId) {
+        saveSession(conversationId, matched.slice(0, 5)).catch(e => console.warn('KV save:', e.message));
+      }
       return res.status(200).json({ reply });
     }
 
