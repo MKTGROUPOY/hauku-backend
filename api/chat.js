@@ -211,12 +211,19 @@ export default async function handler(req, res) {
         .map(m => m.content.replace(/<hauku_data>[\s\S]*?<\/hauku_data>/g, '').toLowerCase())
         .join(' ');
 
-      // Normalisoitu vertailu: poistaa välimerkit, &-entiteetit jne.
-      const normalizeText = t => t.toLowerCase().replace(/[^a-z0-9äöå]/g, '');
-      const normalizedHistory = normalizeText(lastAssistTexts);
+      // Rivikohtainen poiminta: rivi ennen "Proteiinit:" = tuotenimi
+      const lines = lastAssistTexts.split('\n');
+      const extractedNames = [];
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].includes('proteiinit:') && i > 0) {
+          const name = lines[i - 1].replace(/\*\*/g, '').trim().toLowerCase();
+          if (name.length >= 5) extractedNames.push(name);
+        }
+      }
+      // Kaksisuuntainen vertailu: tietokanta ⊆ historia TAI historia ⊆ tietokanta
       const lockedProducts = products.filter(p => {
-        const normalizedName = normalizeText(p.n || '');
-        return normalizedName.length >= 6 && normalizedHistory.includes(normalizedName);
+        const dbName = (p.n || '').toLowerCase();
+        return extractedNames.some(n => dbName.includes(n) || n.includes(dbName));
       }).slice(0, 5);
 
       const ordinalProduct = resolveOrdinalProduct(latestUserMsg, lockedProducts);
