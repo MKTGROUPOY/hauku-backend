@@ -248,6 +248,7 @@ export default async function handler(req, res) {
     }
 
     // 5b. Epäilyviesti — asiakas kyseenalaistaa lukumäärän → backend vastaa aina itse
+    const latestUserMsg = norm(messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '');
     const doubtQuestion = /eik[öo]|oletko varma|varmasti|todellakin|onhan.*enemmän|ei vaan|kyll[äa] on|on niit[äa]|pitäisi olla|pitää olla/.test(latestUserMsg);
     if (doubtQuestion && filters.brand) {
       const bNorm2 = norm(filters.brand);
@@ -262,7 +263,6 @@ export default async function handler(req, res) {
     }
 
     // 5. Tuotemäärä — käytä samaa normalisointia kuin bränditunnistus
-    const latestUserMsg = norm(messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '');
     if (/montako|kuinka monta|paljonko.*tuotett/.test(latestUserMsg) && filters.brand) {
       const bNorm = norm(filters.brand);
       const brandProducts = products.filter(p => {
