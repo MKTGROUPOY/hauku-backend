@@ -493,6 +493,60 @@ export default async function handler(req, res) {
       matched = [exactProduct, ...rest];
     }
 
+    // ── FOLLOW-UP TUNNISTUS ──────────────────────────────────────────────────
+    function extractHaukuData(msgs) {
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        const m = msgs[i];
+        if (m.role === 'assistant' && m.content.includes('<hauku_data>')) {
+          const match = m.content.match(/<hauku_data>([\s\S]*?)<\/hauku_data>/);
+          if (match) { try { return JSON.parse(match[1]); } catch {} }
+        }
+      }
+      return null;
+    }
+
+    function resolveOrdinalProduct(text, prods) {
+      if (!prods?.length) return null;
+      const t = norm(text);
+      if (/\beka\b|ensimm[äa]inen/.test(t)) return prods[0];
+      if (/\btoinen\b|toisena/.test(t)) return prods[1] || null;
+      if (/\bkolmas\b/.test(t)) return prods[2] || null;
+      if (/\bnelj[äa]s\b/.test(t)) return prods[3] || null;
+      if (/\bviides\b/.test(t)) return prods[4] || null;
+      if (/\bvika\b|viimeinen|viimeisin/.test(t)) return prods[prods.length - 1];
+      return null;
+    }
+
+    const priorHaukuData = extractHaukuData(messages);
+    const ordinalProduct = resolveOrdinalProduct(latestUserMsg, priorHaukuData);
+
+    // Jos käyttäjä viittaa järjestykseen tai pronominilla → ohita uusi tuotehaku → käytä Geminiä kontekstilla
+    const isFollowUp = priorHaukuData && (
+      ordinalProduct !== null ||
+      /\b(eka|toinen|kolmas|vika|viimeinen|listalla|listattu|ehdottamasi|suosittelemasi)\b/i.test(latestUserMsg) ||
+      (/\b(se|toi|siinä|tässä|noissa|näistä|niistä)\b/i.test(latestUserMsg) && !/löytyykö|suosittele|etsi|mitä ruokaa|sopivaa/.test(latestUserMsg))
+    );
+
+    if (isFollowUp) {
+      // Injektoi hauku_data Geminin kontekstiin
+      const dataContext = ordinalProduct
+        ? `[VIITTATTU TUOTE: ${JSON.stringify(ordinalProduct)}]`
+        : `[AIEMMIN NÄYTETYT TUOTTEET: ${JSON.stringify(priorHaukuData)}]`;
+
+      const followUpSystemPrompt = (HARDCODED_PROMPT || '') +
+        `\n\nKÄYTÄ VAIN TÄTÄ DATAA VASTATESSASI — ÄLÄ KOSKAAN ARVAA:\n${dataContext}\n\nJos datassa ei ole kysyttyä tietoa, sano se rehellisesti ja ohjaa tarkistamaan pakkaus.`;
+
+      const filteredMsgs = messages.filter((m, i) => !(i === 0 && m.role === 'assistant'));
+      const geminiMsgs = filteredMsgs.slice(-6).map(m => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: m.content.replace(/<hauku_data>[\s\S]*?<\/hauku_data>/g, '') }],
+      }));
+
+      const reply = await callGemini(followUpSystemPrompt, geminiMsgs, apiKey, 600);
+      return res.status(200).json({ reply: reply || 'Yritä uudelleen.' });
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     console.log('filters:', JSON.stringify({ excl: filters.excl, store: filters.store, brand: filters.brand, size: filters.size }));
     console.log('matched:', matched.length);
 
