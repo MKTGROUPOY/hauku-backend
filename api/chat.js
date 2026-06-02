@@ -127,31 +127,45 @@ function extractProductsFromLastAssistant(messages, allProducts) {
 }
 
 // ── KORJAUS 2: Follow-up tunnistus ──────────────────────────────────────
-// KRIITTINEN: Regex-pohjainen follow-up tunnistus — ei riippuvainen lockedProducts-löydöksistä
-// Pronominit ja järjestysnumero-viittaukset YLIAJAVAT aina uuden haun
+// KRIITTINEN: Follow-up tunnistus — \b ei toimi suomen ä/ö kanssa, käytetään norm()+padding
 function detectFollowUp(latestUserMsg) {
   const t = norm(latestUserMsg);
 
-  // Selkeät uuden haun signaalit — estävät false positivet
-  const isNewSearch = /löytyykö|etsi |suosittele|näytä|hae |mitä ruokaa|sopivaa ruokaa|onko teillä|löytyy.*allergi|vaihtoehto.*allergi/.test(t);
+  // Selkeät UUDEN HAUN signaalit — ohittavat follow-upin
+  const isNewSearch = /loytyykö|etsi |suosittele|nayta|hae |mita ruokaa|sopivaa ruokaa|onko teilla|vaihtoehto.{0,20}allergi/.test(t);
   if (isNewSearch) return false;
 
-  // Pronominit ja järjestysnumerot (kaikki suomen muodot) + jatkosignaalisanat
-  const hasRef = /\b(eka|toka|tokassa|tokaan|kolmas|kolmannessa|vika|vikassa|ensimmäinen|ensimmäisessä|toinen|toisessa|toiseen|tuossa|tuohon|tässä|tähän|siinä|siihen|siitä|sillä|näissä|niissä|noissa|tuo|tämä|\bse\b|entä|miten|mites)\b/i.test(latestUserMsg);
-  const isComparison = /kummassa|kumpi|enemmän|vähemmän|parempi.*näistä|kumpi.*näistä|vertaa/.test(t);
+  // Padding-tekniikka + ASCII-normalisointi ä→a, ö→o (\b ei toimi ä:n kanssa)
+  const tAscii = t.replace(/ä/g, 'a').replace(/ö/g, 'o').replace(/å/g, 'a');
+  const p = ' ' + tAscii + ' ';
+  const REFS = [
+    ' eka ',' toka ',' kolmas ',' neljas ',' viides ',' vika ',
+    ' ensimmainen ',' toinen ',
+    ' tuossa ',' tuohon ',' tassa ',' tahan ',' siina ',' siihen ',' siita ',' silla ',
+    ' niissa ',' noissa ',' naissa ',' niilla ',' niilta ',' niista ',
+    ' enta ',' entas ',' miten ',' mites ',
+    ' tuo ',' tama '
+  ];
+  const hasRef = REFS.some(w => p.includes(w));
+  // Tarkista myös taivutusmuodot stem-haulla (ekassa, tokassa, toisessa jne.)
+  const ordinalStems = ['eka', 'toka', 'kolma', 'viime', 'vika', 'toinen', 'ensimmai'];
+  const hasOrdinalStem = tAscii.split(' ').some(word => ordinalStems.some(stem => word.startsWith(stem) && word.length > stem.length));
+  const startsFollowUp = /^(enta|miten|mites|entas)[ ,!?]/.test(tAscii);
+  const isComparison = /kummassa|kumpi|enemman|vahemman|parempi|vertaa/.test(tAscii);
 
-  return hasRef || isComparison;
+  return hasRef || hasOrdinalStem || startsFollowUp || isComparison;
 }
 
 function resolveOrdinalProduct(text, prods) {
   if (!prods?.length) return null;
-  const t = norm(text);
-  if (/\beka\b|ensimm|\byks\b/.test(t)) return prods[0];
-  if (/\btok|\btoinen\b|toisess|toiseen/.test(t)) return prods[1] || null;
-  if (/\bkolm/.test(t)) return prods[2] || null;
-  if (/\bnelj/.test(t)) return prods[3] || null;
-  if (/\bviid/.test(t)) return prods[4] || null;
-  if (/\bvik[ao]|viimei/.test(t)) return prods[prods.length - 1];
+  const tRaw = norm(text);
+  const t = ' ' + tRaw.replace(/ä/g, 'a').replace(/ö/g, 'o').replace(/å/g, 'a') + ' ';
+  if (/ eka | ensimm | yks /.test(t)) return prods[0];
+  if (/ toka | toinen | toisess|toiseen/.test(t)) return prods[1] || null;
+  if (/ kolm/.test(t)) return prods[2] || null;
+  if (/ nelj/.test(t)) return prods[3] || null;
+  if (/ viid/.test(t)) return prods[4] || null;
+  if (/ vik[ao]| viimei/.test(t)) return prods[prods.length - 1];
   return null;
 }
 
