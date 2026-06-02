@@ -1,7 +1,21 @@
 // api/chat.js — Hauku backend v4 (Vercel serverless)
 
 import { extractFilters, filterProducts, buildProductContext, buildDirectProductResponse } from '../lib/filters.js';
-import { saveSession, loadSession } from '../lib/kv-session.js';
+
+// Inline sessiomuisti — ei erillistä importtia
+const _sessions = new Map();
+const _SESSION_TTL = 60 * 60 * 1000;
+async function saveSession(id, products) {
+  if (!id || !products?.length) return;
+  _sessions.set(id, { data: products.slice(0, 5), ts: Date.now() });
+}
+async function loadSession(id) {
+  if (!id) return null;
+  const e = _sessions.get(id);
+  if (!e) return null;
+  if (Date.now() - e.ts > _SESSION_TTL) { _sessions.delete(id); return null; }
+  return e.data;
+}
 import { getProducts } from '../lib/shopify.js';
 import { SYSTEM_PROMPT as HARDCODED_PROMPT } from '../lib/system-prompt.js';
 
