@@ -231,8 +231,13 @@ export default async function handler(req, res) {
       }
       if (!targetProduct) return null;
 
-      const rv = targetProduct.rv || '';
-      if (rv) console.log('NUTRITION RV:', targetProduct.n, '|', rv.substring(0, 200));
+      // rv-kenttä voi olla JSON-array ["..."] tai tavallinen teksti
+      let rv = targetProduct.rv || '';
+      try {
+        const parsed = JSON.parse(rv);
+        rv = Array.isArray(parsed) ? parsed[0] : String(parsed);
+      } catch {}
+      rv = String(rv).replace(/^\["|"\]$|^\[|\]$/g, '').trim();
       const p = targetProduct;
 
       // Yleinen ravintoarvoparsinki — joustava formaatti
