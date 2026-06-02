@@ -186,22 +186,44 @@ export default async function handler(req, res) {
     const latestUserMsg = messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '';
     const latestUserNorm = norm(latestUserMsg);
 
-    // ── FOLLOW-UP REITTI — KRIITTINEN: ENNEN extractFilters/filterProducts ──
-    // detectFollowUp on TÄYSIN regex-pohjainen — ei riipu lockedProducts-löydöksistä
-    // Pronominit ja järjestysnumerot YLIAJAVAT aina uuden haun
-    const isFollowUp = detectFollowUp(latestUserMsg);
-    const lockedProducts = isFollowUp ? extractProductsFromLastAssistant(messages, products) : [];
+    // ══════════════════════════════════════════════════════════════════════
+    // KILL SWITCH — JATKOKYSYMYSLUKKO
+    // Jos isFollowUp = true, extractFilters ja filterProducts EIVÄT AJA
+    // ══════════════════════════════════════════════════════════════════════
+
+    // Kapea isNewSearch: vain eksplisiittiset uudet haut
+    const isNewSearch = /(etsin\b|näytä|suosittele|mitä löytyy|mita loytyy|vaihtoehtoja|uusi haku|löytyykö|loytyykö|etsi ruokaa|onko teillä.*ruokaa)/i.test(latestUserMsg);
+
+    // Laaja isFollowUp: ASCII-normalisointi + alkuperäinen teksti (ä/ö ongelma kierretty)
+    const _ua = latestUserMsg.toLowerCase().replace(/ä/g,'a').replace(/ö/g,'o').replace(/å/g,'a');
+    const isFollowUp = !isNewSearch && (
+      /\b(eka|ekassa|ekaan|ekalla|toka|tokassa|tokaan|kolmas|vika|vikassa|ensimmainen|toinen|toisessa|tuossa|tassa|siina|niissa|noissa|tuo|tama|se|enta|miten|mites|sisaltaako|sisaltaa|entas)\b/.test(_ua) ||
+      /\b(ensimmäinen|tässä|siinä|näissä|niissä|entä|sisältääkö|tämä)\b/i.test(latestUserMsg) ||
+      /kummassa|kumpi|enemman|enemmän|vahemman|vähemmän|parempi|vertaa/.test(_ua)
+    );
 
     if (isFollowUp) {
+      // KIELLETTY: extractFilters, filterProducts — ei uutta hakua
+      // Etsi tuotteet skannaamalla 3 viimeistä assistant-viestiä
+      const lastAssistTexts = messages
+        .filter(m => m.role === 'assistant')
+        .slice(-3)
+        .map(m => m.content.replace(/<hauku_data>[\s\S]*?<\/hauku_data>/g, '').toLowerCase())
+        .join(' ');
+
+      const lockedProducts = products.filter(p => {
+        const pName = (p.n || '').toLowerCase();
+        return pName.length >= 8 && lastAssistTexts.includes(pName);
+      }).slice(0, 5);
+
       const ordinalProduct = resolveOrdinalProduct(latestUserMsg, lockedProducts);
       const contextProds = (ordinalProduct ? [ordinalProduct] : lockedProducts).filter(Boolean);
-
-      // Rakenna täysi product context Shopify-datasta
       const productCtx = buildProductContext(contextProds, {});
 
       const followUpSystemPrompt = (HARDCODED_PROMPT || '') +
-        `\n\nJATKOKYSYMYS — KÄYTÄ VAIN ALLA OLEVAA SHOPIFY-DATAA. ÄLÄ ARVAA MITÄÄN.\n` +
-        `Jos datassa ei ole kysyttyä tietoa, sano rehellisesti "ei löydy tietokannastamme" ja ohjaa tarkistamaan pakkaus.\n` +
+        '\n\nJATKOKYSYMYS — vastaa lyhyesti käyttäen alla olevaa dataa. ÄLÄ generoi uutta tuotelistaa.\n' +
+        'ÄLÄ aloita vastaustasi "Löysin X tuotetta" tai muulla listauksella.\n' +
+        'Jos tietoa ei löydy datasta, sano rehellisesti ja ohjaa tarkistamaan pakkaus.\n' +
         productCtx;
 
       const filteredMsgs = messages
