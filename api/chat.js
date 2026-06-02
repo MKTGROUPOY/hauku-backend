@@ -247,13 +247,33 @@ export default async function handler(req, res) {
       return res.status(200).json({ reply: 'Palvelussamme ei ole hintatietoja. Näet hinnat suoraan ostolinkistä verkkokauppaan.' });
     }
 
+    // 5b. Epäilyviesti — asiakas kyseenalaistaa lukumäärän → backend vastaa aina itse
+    const doubtQuestion = /eik[öo]|oletko varma|varmasti|todellakin|onhan.*enemmän|ei vaan|kyll[äa] on|on niit[äa]|pitäisi olla|pitää olla/.test(latestUserMsg);
+    if (doubtQuestion && filters.brand) {
+      const bNorm2 = norm(filters.brand);
+      const brandCount = products.filter(p =>
+        norm(p.m || '').includes(bNorm2) || norm(p.n || '').includes(bNorm2)
+      ).length;
+      const brandDisplay2 = filters.brand.charAt(0).toUpperCase() + filters.brand.slice(1);
+      if (brandCount === 0) {
+        return res.status(200).json({ reply: `${brandDisplay2}-tuotteita ei löydy valikoimastamme — tietokantamme mukaan.` });
+      }
+      return res.status(200).json({ reply: `Tietokantamme mukaan valikoimassamme on **tasan ${brandCount}** ${brandDisplay2}-tuotetta. En voi muuttaa tätä lukua — se tulee suoraan tuotetietokannastamme.` });
+    }
+
     // 5. Tuotemäärä — käytä samaa normalisointia kuin bränditunnistus
     const latestUserMsg = norm(messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '');
     if (/montako|kuinka monta|paljonko.*tuotett/.test(latestUserMsg) && filters.brand) {
       const bNorm = norm(filters.brand);
-      const brandProducts = products.filter(p =>
-        norm(p.m || '').includes(bNorm) || norm(p.n || '').includes(bNorm)
-      );
+      const brandProducts = products.filter(p => {
+        // Tarkista vendor ja tuotenimi
+        if (norm(p.m || '').includes(bNorm)) return true;
+        if (norm(p.n || '').includes(bNorm)) return true;
+        // Tarkista myös tuotenimen ensimmäinen sana (merkki saattaa olla nimessä)
+        const firstWord = norm(p.n || '').split(' ')[0];
+        if (firstWord.length >= 4 && bNorm.includes(firstWord)) return true;
+        return false;
+      });
       const brandDisplay = filters.brand.charAt(0).toUpperCase() + filters.brand.slice(1);
       if (brandProducts.length === 0) {
         return res.status(200).json({ reply: `${brandDisplay}-tuotteita ei löydy valikoimastamme.` });
