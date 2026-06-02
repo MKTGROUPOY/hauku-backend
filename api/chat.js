@@ -252,7 +252,8 @@ export default async function handler(req, res) {
     const doubtQuestion = (
       /eik[öo]|oletko varma|todellakin|onhan.*enemmän|ei vaan|kyll[äa] on|on niit[äa]|pitäisi olla|pitää olla|ei ole niin|ei vitussa|eivät ole|eivät löydy/.test(latestUserMsg) ||
       /en usko|sekoilet|sekoilee|sekaisin|väärää tietoa|virheellist|anna väärää|väärin|ei täsmää|ei pidä paikk|ei stimu/.test(latestUserMsg) ||
-      /montako.*oikeasti|oikeasti.*montako|onko oikeasti|oikeasti niitä|kuinka monta oikeasti/.test(latestUserMsg)
+      /montako.*oikeasti|oikeasti.*montako|onko oikeasti|oikeasti niitä|kuinka monta oikeasti/.test(latestUserMsg) ||
+      /olin katsovinani|minusta oli|luulin että|ajattelin että|mielestäni.*enemmän|näyttäisi olevan|pitäisi olla enemmän/.test(latestUserMsg)
     );
 
     if (doubtQuestion) {
