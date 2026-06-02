@@ -269,6 +269,31 @@ export default async function handler(req, res) {
         if (val) return `**${targetProduct.n}** sisältää raakakuitua **${val} %**.`;
         return `**${targetProduct.n}** — raakakuitua ei ole ilmoitettu tietokannassamme. 📋 Tarkistathan pakkauksen.`;
       }
+      // Omega-3, omega-6, kalsium, fosfori
+      if (/omega.?3|omega.?6|kalsium|fosfori|tuhka|kosteus|energia|kcal/.test(t)) {
+        const nutrientMap = [
+          { keys: ['omega.?3'], labels: ['omega-3'] },
+          { keys: ['omega.?6'], labels: ['omega-6'] },
+          { keys: ['kalsium'], labels: ['kalsium'] },
+          { keys: ['fosfori'], labels: ['fosfori'] },
+          { keys: ['tuhka'], labels: ['tuhka'] },
+          { keys: ['kosteus'], labels: ['kosteus'] },
+          { keys: ['energia', 'kcal'], labels: ['energia', 'kcal'] },
+        ];
+        for (const n of nutrientMap) {
+          if (n.keys.some(k => new RegExp(k).test(t))) {
+            const val = parseNutrient(rv, n.labels);
+            if (val) return `**${targetProduct.n}** — ${n.labels[0]}: **${val} %** (tai vastaava yksikkö).`;
+            // Hae myös kcal erikseen
+            if (n.labels.includes('kcal')) {
+              const mKcal = rv.match(/(\d+)\s*kcal/i);
+              if (mKcal) return `**${targetProduct.n}** — energiapitoisuus: **${mKcal[1]} kcal/100g**.`;
+            }
+            return `**${targetProduct.n}** — ${n.labels[0]}-tietoa ei ole ilmoitettu tietokannassamme. 📋 Tarkistathan pakkauksen.`;
+          }
+        }
+      }
+
       // Ikä/koko/kenelle sopii
       if (/minkä ikä|minkä koko|mille koiralle|kenelle sopii/.test(t)) {
         const age = p.i?.join(', ') || 'Ei tietoa';
