@@ -232,26 +232,36 @@ export default async function handler(req, res) {
       if (!targetProduct) return null;
 
       const rv = targetProduct.rv || '';
+      if (rv) console.log('NUTRITION RV:', targetProduct.n, '|', rv.substring(0, 200));
       const p = targetProduct;
+
+      // Yleinen ravintoarvoparsinki — joustava formaatti
+      function parseNutrient(rvStr, keywords) {
+        for (const kw of keywords) {
+          const m = rvStr.match(new RegExp(kw + '[^\\d]*([\\d.,]+)\\s*%', 'i'));
+          if (m) return m[1].replace(',', '.');
+        }
+        return null;
+      }
 
       // Raakaproteiini
       if (/raakaproteiini/.test(t)) {
-        const m = rv.match(/raakaproteiini[:\s]+([\d.,]+)\s*%/i);
-        if (m) return `**${targetProduct.n}** sisältää raakaproteiinia **${m[1]} %**.`;
+        const val = parseNutrient(rv, ['raakaproteiini']);
+        if (val) return `**${targetProduct.n}** sisältää raakaproteiinia **${val} %**.`;
         return `**${targetProduct.n}** — raakaproteiinia ei ole ilmoitettu tietokannassamme. 📋 Tarkistathan pakkauksen.`;
       }
       // Raakarasva
       if (/raakarasva/.test(t)) {
-        const m = rv.match(/raakarasva[:\s]+([\d.,]+)\s*%/i);
-        if (m) return `**${targetProduct.n}** sisältää raakarasvaa **${m[1]} %**.`;
+        const val = parseNutrient(rv, ['raakarasva']);
+        if (val) return `**${targetProduct.n}** sisältää raakarasvaa **${val} %**.`;
         if (p.rl) return `**${targetProduct.n}** rasvapitoisuus: **${p.rl}**.`;
         return `**${targetProduct.n}** — raakarasvaa ei ole ilmoitettu tietokannassamme. 📋 Tarkistathan pakkauksen.`;
       }
       // Raakakuitu
       if (/raakakuitu/.test(t)) {
-        const m = rv.match(/raakakuitu[:\s]+([\d.,]+)\s*%/i);
-        if (m) return `**${targetProduct.n}** sisältää raakakuitua **${m[1]} %**.`;
-        return `**${targetProduct.n}** — raakakuitua ei ole ilmoitettu tietokannassamme.`;
+        const val = parseNutrient(rv, ['raakakuitu']);
+        if (val) return `**${targetProduct.n}** sisältää raakakuitua **${val} %**.`;
+        return `**${targetProduct.n}** — raakakuitua ei ole ilmoitettu tietokannassamme. 📋 Tarkistathan pakkauksen.`;
       }
       // Ikä/koko/kenelle sopii
       if (/minkä ikä|minkä koko|mille koiralle|kenelle sopii/.test(t)) {
