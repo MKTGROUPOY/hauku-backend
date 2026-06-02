@@ -203,44 +203,47 @@ export default async function handler(req, res) {
     );
 
     if (isFollowUp) {
-      // KIELLETTY: extractFilters, filterProducts — ei uutta hakua
-      // Etsi tuotteet skannaamalla 3 viimeistä assistant-viestiä
-      const lastAssistTexts = messages
-        .filter(m => m.role === 'assistant')
-        .slice(-3)
-        .map(m => m.content.replace(/<hauku_data>[\s\S]*?<\/hauku_data>/g, '').toLowerCase())
-        .join(' ');
-
-      // Rivikohtainen poiminta: rivi ennen "Proteiinit:" = tuotenimi
-      const lines = lastAssistTexts.split('\n');
-      const extractedNames = [];
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i].includes('proteiinit:') && i > 0) {
-          const name = lines[i - 1].replace(/\*\*/g, '').trim().toLowerCase();
-          if (name.length >= 5) extractedNames.push(name);
+      // FULL CONTEXT INJECTION — ei Shopify-hakuja, ei nimiparsintaa
+      // Etsi viimeisin assistant-viesti jossa on tuotelista (sisältää "Löysin" tai "🛒")
+      let productListText = '';
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const m = messages[i];
+        if (m.role !== 'assistant') continue;
+        const c = m.content || '';
+        if (c.includes('Löysin') || c.includes('löysin') || c.includes('\uD83D\uDED2')) {
+          productListText = c.replace(/<hauku_data>[\s\S]*?<\/hauku_data>/g, '').trim();
+          break;
         }
       }
-      // Kaksisuuntainen vertailu: tietokanta ⊆ historia TAI historia ⊆ tietokanta
-      const lockedProducts = products.filter(p => {
+
+      // Täydennä Shopify-datalla jos mahdollista (ravintoarvot ym.)
+      // Etsi tuotenimet listasta → hae täysi data
+      const extractedNames = [];
+      productListText.split('\n').forEach((line, i, arr) => {
+        const next = arr[i + 1] || '';
+        if (/proteiinit:|rasvapitoisuus:|🛒/i.test(next)) {
+          const name = line.replace(/\*\*/g, '').trim();
+          if (name.length >= 5) extractedNames.push(name.toLowerCase());
+        }
+      });
+      const shopifyProducts = products.filter(p => {
         const dbName = (p.n || '').toLowerCase();
         return extractedNames.some(n => dbName.includes(n) || n.includes(dbName));
       }).slice(0, 5);
 
-      const ordinalProduct = resolveOrdinalProduct(latestUserMsg, lockedProducts);
-      const contextProds = (ordinalProduct ? [ordinalProduct] : lockedProducts).filter(Boolean);
-
-      // Jos parsinta onnistui → käytä täyttä Shopify-dataa
-      // Jos lockedProducts on tyhjä → anna Geminin käyttää keskusteluhistoriaa
-      const productCtx = contextProds.length > 0
-        ? buildProductContext(contextProds, {})
+      // Rakenna konteksti: Shopify-data + alkuperäinen lista fallbackina
+      const shopifyCtx = shopifyProducts.length > 0 ? buildProductContext(shopifyProducts, {}) : '';
+      const listCtx = productListText
+        ? '\n[ALKUPERÄINEN TUOTELISTA TÄSTÄ KESKUSTELUSTA:]\n' + productListText
         : '';
 
       const followUpSystemPrompt = (HARDCODED_PROMPT || '') +
-        '\n\nJATKOKYSYMYS — ÄLÄ generoi uutta tuotelistaa. ÄLÄ pahoittele.\n' +
-        'ÄLÄ aloita vastaustasi "Löysin X tuotetta" tai muulla listauksella.\n' +
-        (contextProds.length > 0
-          ? 'Käytä alla olevaa Shopify-dataa vastatessasi. Jos tietoa ei löydy, ohjaa tarkistamaan pakkaus.\n' + productCtx
-          : 'Käytä vastauksessasi sitä tuotelistaa, jonka annoit aiemmassa viestissä. ÄLÄ hae uusia tuotteita.');
+        '\n\nJATKOKYSYMYS — KRIITTISET SÄÄNNÖT:\n' +
+        '1. ÄLÄ generoi uutta tuotelistaa. ÄLÄ pahoittele.\n' +
+        '2. Vastaa KAIKKI kysymykset perustuen vain ja ainoastaan alla olevaan dataan ja keskusteluhistoriaan.\n' +
+        '3. Älä koskaan yritä hakea tietoa tietokannasta itse — käytä vain tässä annettua tietoa.\n' +
+        '4. Jos tieto löytyy allaolevasta Shopify-datasta tai tuotelistasta, käytä sitä suoraan.\n' +
+        (shopifyCtx || listCtx);
 
       const filteredMsgs = messages
         .filter((m, i) => !(i === 0 && m.role === 'assistant'))
