@@ -273,7 +273,8 @@ export default async function handler(req, res) {
       if (doubtBrand) {
         const bNorm2 = norm(doubtBrand);
         const brandCount = products.filter(p =>
-          norm(p.m || '').includes(bNorm2) || norm(p.n || '').includes(bNorm2)
+          (p.l || p.l2 || p.l3) &&
+          (norm(p.m || '').includes(bNorm2) || norm(p.n || '').includes(bNorm2))
         ).length;
         const brandDisplay2 = doubtBrand.charAt(0).toUpperCase() + doubtBrand.slice(1);
         if (brandCount === 0) {
@@ -287,10 +288,10 @@ export default async function handler(req, res) {
     if (/montako|kuinka monta|paljonko.*tuotett/.test(latestUserMsg) && filters.brand) {
       const bNorm = norm(filters.brand);
       const brandProducts = products.filter(p => {
-        // Tarkista vendor ja tuotenimi
+        // Vaadi vähintään yksi ostolinkki — muuten tuote ei ole saatavilla
+        if (!p.l && !p.l2 && !p.l3) return false;
         if (norm(p.m || '').includes(bNorm)) return true;
         if (norm(p.n || '').includes(bNorm)) return true;
-        // Tarkista myös tuotenimen ensimmäinen sana (merkki saattaa olla nimessä)
         const firstWord = norm(p.n || '').split(' ')[0];
         if (firstWord.length >= 4 && bNorm.includes(firstWord)) return true;
         return false;
