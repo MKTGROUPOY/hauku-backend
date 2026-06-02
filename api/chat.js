@@ -412,9 +412,11 @@ export default async function handler(req, res) {
 
     const hasFilters = !!(filters.excl.length || filters.want.length || filters.brand || filters.age || filters.size || filters.specialDiets?.length || filters.store || exactProduct);
 
-    // Kun käyttäjä kysyy nimetystä tuotteesta suoraan → ohita want-filtteri, säilytä allergeenisuodatus
-    // Esim. "kerro Grandorf Lammas -ruoasta" ei saa epäonnistua vaikka want=['Nauta']
-    const filtersForSearch = exactProduct && exactProducts.length > 0
+    // Kun käyttäjä kysyy nimetystä tuotteesta tai brändistä suoraan → ohita want-filtteri
+    // "kerro Grandorf Lammas -ruoasta" ei saa epäonnistua vaikka want=['Nauta']
+    // Brändikyselyissä käyttäjä haluaa KAIKKI brändin tuotteet, ei vain aiemman proteiinisuodatuksen mukaiset
+    const isBrandOrProductQuery = !!(exactProduct || filters.brand);
+    const filtersForSearch = isBrandOrProductQuery
       ? { ...filters, want: [], specialDiets: [], size: null, age: null }
       : filters;
 
@@ -425,17 +427,14 @@ export default async function handler(req, res) {
       matched = [...matched.slice(0, 5), ...matched2.slice(0, 5)];
     }
 
-    // Jos exactProduct löytyi mutta ei ole matched-listassa → lisää se allergeenisuodatuksen jälkeen
+    // Jos exactProduct löytyi → nosta se listan kärkeen
     if (exactProducts.length > 0) {
-      const validExact = exactProducts.filter(p =>
-        productPassesAllergenCheck ? true : true // allergeenisuodatus tehdään filterProducts:ssa
-      );
-      const exactNotInMatched = validExact.filter(p => !matched.some(m => m.n === p.n));
+      const exactNotInMatched = exactProducts.filter(p => !matched.some(m => m.n === p.n));
       if (exactNotInMatched.length > 0) {
-        matched = [...exactNotInMatched, ...matched.filter(p => !validExact.find(ep => ep.n === p.n)).slice(0, 4)];
-      } else if (validExact.length > 0) {
-        const rest = matched.filter(p => !validExact.find(ep => ep.n === p.n)).slice(0, 4);
-        matched = [...validExact, ...rest];
+        matched = [...exactNotInMatched, ...matched.filter(p => !exactNotInMatched.find(ep => ep.n === p.n)).slice(0, 4)];
+      } else {
+        const rest = matched.filter(p => !exactProducts.find(ep => ep.n === p.n)).slice(0, 4);
+        matched = [...exactProducts, ...rest];
       }
     }
 
