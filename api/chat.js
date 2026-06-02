@@ -550,7 +550,20 @@ Palauta VAIN JSON: {"intro":"teksti tähän"}`;
         if (typeof parsed.intro === 'string' && parsed.intro.length > 5) intro = parsed.intro;
       } catch {}
 
-      const reply = intro ? intro + '\n\n' + productList : productList;
+      // Liitä piilotettuja tuotetietoja Geminin kontekstia varten (follow-up kysymykset)
+      // Widget strippaa <hauku_data>...</hauku_data> näytöltä mutta historia säilyttää sen
+      const contextProducts = matched.slice(0, 5).map(p => ({
+        n: p.n,
+        m: p.m,
+        p: p.p,
+        a: (p.a || '').substring(0, 600),
+        rv: (() => { let r = p.rv || ''; try { const parsed = JSON.parse(r); r = Array.isArray(parsed) ? parsed[0] : String(parsed); } catch {} return r; })(),
+        v: (p.v || []).slice(0, 20),
+        er: p.er || [],
+        rl: p.rl || ''
+      }));
+      const hiddenData = '\n<hauku_data>' + JSON.stringify(contextProducts) + '</hauku_data>';
+      const reply = (intro ? intro + '\n\n' + productList : productList) + hiddenData;
       return res.status(200).json({ reply });
     }
 
