@@ -211,9 +211,12 @@ export default async function handler(req, res) {
         .map(m => m.content.replace(/<hauku_data>[\s\S]*?<\/hauku_data>/g, '').toLowerCase())
         .join(' ');
 
+      // Normalisoitu vertailu: poistaa välimerkit, &-entiteetit jne.
+      const normalizeText = t => t.toLowerCase().replace(/[^a-z0-9äöå]/g, '');
+      const normalizedHistory = normalizeText(lastAssistTexts);
       const lockedProducts = products.filter(p => {
-        const pName = (p.n || '').toLowerCase();
-        return pName.length >= 8 && lastAssistTexts.includes(pName);
+        const normalizedName = normalizeText(p.n || '');
+        return normalizedName.length >= 6 && normalizedHistory.includes(normalizedName);
       }).slice(0, 5);
 
       const ordinalProduct = resolveOrdinalProduct(latestUserMsg, lockedProducts);
