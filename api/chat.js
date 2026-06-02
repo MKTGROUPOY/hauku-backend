@@ -170,6 +170,7 @@ function detectFollowUp(latestUserMsg) {
   const isShortFollowUp = tAscii.split(' ').filter(Boolean).length <= 3 && /^(kuinka|mika|miten|onko|sopiiko)/.test(tAscii);
 
   return hasRef || hasOrdinalStem || startsFollowUp || isComparison || isShortFollowUp;
+}
 
 function resolveOrdinalProduct(text, prods) {
   if (!prods?.length) return null;
