@@ -256,18 +256,34 @@ export default async function handler(req, res) {
     );
 
     if (doubtQuestion) {
-      // Hae brändi nykyisestä tai edellisestä viestistä
+      // Hae brändi prioriteettijärjestyksessä:
+      // 1. Nykyinen viesti (filters.brand)
+      // 2. Edelliset käyttäjäviestit (viimeiset 3)
+      // 3. Edellinen assistant-viesti (viimeisenä — voi olla sekava)
+      const BLACKLIST2 = ['hauku', 'ruokakoiralle', 'koiralle', 'koira', 'ruoka', 'peten', 'zooplus', 'haukkula'];
+      const vendors2 = products.length > 0
+        ? [...new Set(products.map(p => norm(p.m || '')).filter(v => v.length >= 4 && !BLACKLIST2.includes(v)))].sort((a,b) => b.length - a.length)
+        : [];
+
       let doubtBrand = filters.brand;
+
+      // 2. Etsi brändi viimeisimmistä käyttäjäviesteistä
       if (!doubtBrand) {
-        // Etsi brändi viimeisimmästä assistant-vastauksesta
-        const lastAssist = messages.filter(m => m.role === 'assistant').slice(-1)[0]?.content || '';
-        if (products.length > 0) {
-          const BLACKLIST2 = ['hauku', 'ruokakoiralle', 'koiralle', 'koira', 'ruoka', 'peten', 'zooplus', 'haukkula'];
-          const vendors2 = [...new Set(products.map(p => norm(p.m || '')).filter(v => v.length >= 4 && !BLACKLIST2.includes(v)))];
-          for (const v of vendors2) {
-            if (norm(lastAssist).includes(v)) { doubtBrand = v; break; }
+        const recentUserText = norm(messages.filter(m => m.role === 'user').slice(-3).map(m => m.content).join(' '));
+        for (const v of vendors2) {
+          const base = v.replace(/[^a-zäöå]/g, '');
+          if (recentUserText.includes(v) || recentUserText.includes(base + 'in') || recentUserText.includes(base + 'ia') || recentUserText.includes(base + 'n')) {
+            doubtBrand = v; break;
           }
         }
+      }
+
+      // 3. Vasta sitten assistant-viesti (mutta käytä vain jos yksiselitteinen)
+      if (!doubtBrand) {
+        const lastAssist = messages.filter(m => m.role === 'assistant').slice(-1)[0]?.content || '';
+        const assistMatches = vendors2.filter(v => norm(lastAssist).includes(v));
+        // Käytä assistant-viestin brändiä vain jos se on yksiselitteinen (ei useita brändejä)
+        if (assistMatches.length === 1) doubtBrand = assistMatches[0];
       }
 
       if (doubtBrand) {
@@ -285,8 +301,24 @@ export default async function handler(req, res) {
     }
 
     // 5. Tuotemäärä — käytä samaa normalisointia kuin bränditunnistus
-    if (/montako|kuinka monta|paljonko.*tuotett/.test(latestUserMsg) && filters.brand) {
-      const bNorm = norm(filters.brand);
+    // Hae brändi nykyisestä tai viimeisistä viesteistä
+    let countBrand = filters.brand;
+    if (!countBrand && /montako|kuinka monta|paljonko.*tuotett/.test(latestUserMsg)) {
+      const BLACKLIST3 = ['hauku', 'ruokakoiralle', 'koiralle', 'koira', 'ruoka', 'peten', 'zooplus', 'haukkula'];
+      const vendors3 = products.length > 0
+        ? [...new Set(products.map(p => norm(p.m || '')).filter(v => v.length >= 4 && !BLACKLIST3.includes(v)))].sort((a,b) => b.length - a.length)
+        : [];
+      const recentUserText2 = norm(messages.filter(m => m.role === 'user').slice(-3).map(m => m.content).join(' '));
+      for (const v of vendors3) {
+        const base2 = v.replace(/[^a-zäöå]/g, '');
+        if (recentUserText2.includes(v) || recentUserText2.includes(base2 + 'in') || recentUserText2.includes(base2 + 'ia') || recentUserText2.includes(base2 + 'n')) {
+          countBrand = v; break;
+        }
+      }
+    }
+
+    if (/montako|kuinka monta|paljonko.*tuotett/.test(latestUserMsg) && countBrand) {
+      const bNorm = norm(countBrand);
       const brandProducts = products.filter(p => {
         // Vaadi vähintään yksi ostolinkki — muuten tuote ei ole saatavilla
         if (!p.l && !p.l2 && !p.l3) return false;
@@ -296,7 +328,7 @@ export default async function handler(req, res) {
         if (firstWord.length >= 4 && bNorm.includes(firstWord)) return true;
         return false;
       });
-      const brandDisplay = filters.brand.charAt(0).toUpperCase() + filters.brand.slice(1);
+      const brandDisplay = countBrand.charAt(0).toUpperCase() + countBrand.slice(1);
       if (brandProducts.length === 0) {
         return res.status(200).json({ reply: `${brandDisplay}-tuotteita ei löydy valikoimastamme.` });
       }
