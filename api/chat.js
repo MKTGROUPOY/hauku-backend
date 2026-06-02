@@ -249,11 +249,13 @@ export default async function handler(req, res) {
 
     // 5b. Epäilyviesti — asiakas kyseenalaistaa lukumäärän tai olemassaoloa
     const latestUserMsg = norm(messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '');
-    const doubtQuestion = (
-      /eik[öo]|oletko varma|todellakin|onhan.*enemmän|ei vaan|kyll[äa] on|on niit[äa]|pitäisi olla|pitää olla|ei ole niin|ei vitussa|eivät ole|eivät löydy/.test(latestUserMsg) ||
-      /en usko|sekoilet|sekoilee|sekaisin|väärää tietoa|virheellist|anna väärää|väärin|ei täsmää|ei pidä paikk|ei stimu/.test(latestUserMsg) ||
+    // Doubt = kyseenalaistaa LUKUMÄÄRÄN — ei tuotekysymystä tai korjausta
+    const isProductQuestion = /raakaproteiini|ainesosa|sisältää|rasvapitoisuus|ravintoarvo|paljonko.*ruoassa|kuinka paljon.*ruoa|sopii|minkä ikä|minkä koko|mille koiralle/.test(latestUserMsg);
+    const doubtQuestion = !isProductQuestion && (
+      /eik[öo]|oletko varma|todellakin|onhan.*enemmän|kyll[äa] on|on niit[äa]|pitäisi olla|pitää olla|ei ole niin|ei vitussa|eivät ole|eivät löydy/.test(latestUserMsg) ||
+      /en usko.*tuotett|en usko.*merkk|sekoilet|sekoilee|sekaisin|väärää tietoa|virheellist|anna väärää|ei täsmää|ei pidä paikk/.test(latestUserMsg) ||
       /montako.*oikeasti|oikeasti.*montako|onko oikeasti|oikeasti niitä|kuinka monta oikeasti/.test(latestUserMsg) ||
-      /olin katsovinani|minusta oli|luulin että|ajattelin että|mielestäni.*enemmän|näyttäisi olevan|pitäisi olla enemmän/.test(latestUserMsg)
+      /olin katsovinani|luulin että.*tuotett|mielestäni.*enemmän|pitäisi olla enemmän/.test(latestUserMsg)
     );
 
     if (doubtQuestion) {
