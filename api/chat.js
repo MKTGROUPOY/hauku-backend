@@ -144,18 +144,18 @@ function detectFollowUp(latestUserMsg) {
     ' ensimmainen ',' toinen ',
     ' tuossa ',' tuohon ',' tassa ',' tahan ',' siina ',' siihen ',' siita ',' silla ',
     ' niissa ',' noissa ',' naissa ',' niilla ',' niilta ',' niista ',
-    ' enta ',' entas ',' miten ',' mites ',
+    ' enta ',' entas ',' miten ',' mites ',' kuinka ',
     ' tuo ',' tama '
   ];
   const hasRef = REFS.some(w => p.includes(w));
-  // Tarkista myös taivutusmuodot stem-haulla (ekassa, tokassa, toisessa jne.)
+  // Stem + lyhyet jatkokysymykset (esim. 'Kuinka paljon?', 'Entäs?')
   const ordinalStems = ['eka', 'toka', 'kolma', 'viime', 'vika', 'toinen', 'ensimmai'];
   const hasOrdinalStem = tAscii.split(' ').some(word => ordinalStems.some(stem => word.startsWith(stem) && word.length > stem.length));
-  const startsFollowUp = /^(enta|miten|mites|entas)[ ,!?]/.test(tAscii);
+  const startsFollowUp = /^(enta|miten|mites|entas|kuinka)[ ,!?]/.test(tAscii);
   const isComparison = /kummassa|kumpi|enemman|vahemman|parempi|vertaa/.test(tAscii);
+  const isShortFollowUp = tAscii.split(' ').filter(Boolean).length <= 3 && /^(kuinka|mika|miten|onko|sopiiko)/.test(tAscii);
 
-  return hasRef || hasOrdinalStem || startsFollowUp || isComparison;
-}
+  return hasRef || hasOrdinalStem || startsFollowUp || isComparison || isShortFollowUp;
 
 function resolveOrdinalProduct(text, prods) {
   if (!prods?.length) return null;
