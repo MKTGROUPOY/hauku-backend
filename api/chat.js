@@ -209,7 +209,7 @@ export default async function handler(req, res) {
       const t = lastMsg.toLowerCase();
 
       // Tunnista ravintoarvo- tai tuotetietokysymykset
-      const isNutritionQ = /raakaproteiini|raakarasva|raakakuitu|paljonko.*sisältää|kuinka paljon|minkä ikä|minkä koko|mille koiralle|kenelle sopii/.test(t);
+      const isNutritionQ = /raakaproteiini|raakarasva|raakakuitu|paljonko|kuinka paljon|minkä ikä|minkä koko|mille koiralle|kenelle sopii|kalsium|fosfori|omega|tuhka|kosteus|energia|kcal|proteiini|rasva|kuitu|lisäaine|ainesosa/.test(t);
       if (!isNutritionQ) return null;
 
       // Etsi tuote viimeisestä viestistä tai assistentin vastauksesta (pronominit)
