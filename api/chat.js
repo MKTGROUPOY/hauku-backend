@@ -166,7 +166,9 @@ function detectFollowUp(latestUserMsg) {
   const ordinalStems = ['eka', 'toka', 'kolma', 'viime', 'vika', 'toinen', 'ensimmai'];
   const hasOrdinalStem = tAscii.split(' ').some(word => ordinalStems.some(stem => word.startsWith(stem) && word.length > stem.length));
   const startsFollowUp = /^(enta|miten|mites|entas|kuinka)[ ,!?]/.test(tAscii);
-  const isComparison = /kummassa|kumpi|enemman|vahemman|parempi|vertaa/.test(tAscii);
+  // 'enemmän' on vertailu vain vertailukontekstissa, ei 'kerro enemmän' -fraasissa
+  const isComparison = /kummassa|kumpi|vahemman|parempi|vertaa/.test(tAscii) ||
+    (/enemman|vahemman/.test(tAscii) && !/kertoa|kerro|tietoa|lisaa/.test(tAscii));
   const isShortFollowUp = tAscii.split(' ').filter(Boolean).length <= 3 && /^(kuinka|mika|miten|onko|sopiiko)/.test(tAscii);
 
   return hasRef || hasOrdinalStem || startsFollowUp || isComparison || isShortFollowUp;
@@ -215,7 +217,7 @@ export default async function handler(req, res) {
     const isFollowUp = !isNewSearch && (
       /\b(eka|ekassa|ekaan|ekalla|toka|tokassa|tokaan|kolmas|vika|vikassa|ensimmainen|toinen|toisessa|tuossa|tassa|siina|niissa|noissa|tuo|tama|se|enta|miten|mites|sisaltaako|sisaltaa|entas)\b/.test(_ua) ||
       /\b(ensimmäinen|tässä|siinä|näissä|niissä|entä|sisältääkö|tämä)\b/i.test(latestUserMsg) ||
-      /kummassa|kumpi|enemman|enemmän|vahemman|vähemmän|parempi|vertaa/.test(_ua)
+      (/kummassa|kumpi|vahemman|vähemmän|parempi|vertaa/.test(_ua) || (/enemman|vahemman/.test(_ua) && !/kertoa|kerro|tietoa|lisaa/.test(_ua)))
     );
 
     if (isFollowUp) {
