@@ -228,13 +228,19 @@ export default async function handler(req, res) {
 
       const ordinalProduct = resolveOrdinalProduct(latestUserMsg, lockedProducts);
       const contextProds = (ordinalProduct ? [ordinalProduct] : lockedProducts).filter(Boolean);
-      const productCtx = buildProductContext(contextProds, {});
+
+      // Jos parsinta onnistui → käytä täyttä Shopify-dataa
+      // Jos lockedProducts on tyhjä → anna Geminin käyttää keskusteluhistoriaa
+      const productCtx = contextProds.length > 0
+        ? buildProductContext(contextProds, {})
+        : '';
 
       const followUpSystemPrompt = (HARDCODED_PROMPT || '') +
-        '\n\nJATKOKYSYMYS — vastaa lyhyesti käyttäen alla olevaa dataa. ÄLÄ generoi uutta tuotelistaa.\n' +
+        '\n\nJATKOKYSYMYS — ÄLÄ generoi uutta tuotelistaa. ÄLÄ pahoittele.\n' +
         'ÄLÄ aloita vastaustasi "Löysin X tuotetta" tai muulla listauksella.\n' +
-        'Jos tietoa ei löydy datasta, sano rehellisesti ja ohjaa tarkistamaan pakkaus.\n' +
-        productCtx;
+        (contextProds.length > 0
+          ? 'Käytä alla olevaa Shopify-dataa vastatessasi. Jos tietoa ei löydy, ohjaa tarkistamaan pakkaus.\n' + productCtx
+          : 'Käytä vastauksessasi sitä tuotelistaa, jonka annoit aiemmassa viestissä. ÄLÄ hae uusia tuotteita.');
 
       const filteredMsgs = messages
         .filter((m, i) => !(i === 0 && m.role === 'assistant'))
