@@ -220,7 +220,8 @@ export default async function handler(req, res) {
           if (!targetProduct || pNorm.length > targetProduct.n.length) targetProduct = p;
         }
       }
-      if (!targetProduct && /\bse\b|\bsiinä\b|\bsitä\b|\bsillä\b/.test(t)) {
+      const isFollowUp = /\bse\b|\bsiinä\b|\bsitä\b|\bsillä\b|^entä|^entäs|^entäpä|^no entä|^ja entä/.test(t) || (t.length < 30 && !t.includes(' '));
+      if (!targetProduct && isFollowUp) {
         const lastAssist = messages.filter(m => m.role === 'assistant').slice(-1)[0]?.content || '';
         for (const p of products) {
           const pNorm = p.n.toLowerCase();
