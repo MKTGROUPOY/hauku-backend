@@ -47,26 +47,58 @@ function detectMedicalBlock(messages) {
   return MEDICAL_BLOCKS.find(kw => allText.includes(kw)) || null;
 }
 
-// ── KORJAUS 3: Context Locking ────────────────────────────────────────────
-// Skannaa viimeisin assistant-viesti → löydä tuotenimet → hae täysi data Shopifysta
+// ── KORJAUS 3: Context Locking (ketjutetut jatkokysymykset) ─────────────────
+// Skannaa historiaa TAAKSEPÄIN → etsi ensimmäinen viesti jossa on tuotelista
+// Näin konteksti säilyy vaikka käyttäjä kysyy viisi jatkokysymystä putkeen
 function extractProductsFromLastAssistant(messages, allProducts) {
-  const lastAssist = messages.filter(m => m.role === 'assistant').slice(-1)[0]?.content || '';
-  if (!lastAssist) return [];
-
-  // Poista hauku_data-blokki ennen skannausta
-  const cleanedAssist = lastAssist.replace(/<hauku_data>[\s\S]*?<\/hauku_data>/g, '');
-  const assistNorm = norm(cleanedAssist);
-
-  const found = [];
-  for (const p of allProducts) {
-    const pNorm = norm(p.n || '');
-    if (pNorm.length >= 10 && assistNorm.includes(pNorm)) {
-      found.push(p);
+  // Prioriteetti 1: hauku_data-blokki (luotettavin lähde)
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== 'assistant') continue;
+    const content = m.content || '';
+    if (content.includes('<hauku_data>')) {
+      const match = content.match(/<hauku_data>([\s\S]*?)<\/hauku_data>/);
+      if (match) {
+        try {
+          const parsed = JSON.parse(match[1]);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            // Hae täysi data Shopifysta tuotenimillä
+            const found = [];
+            for (const item of parsed) {
+              const fullProduct = allProducts.find(p => norm(p.n) === norm(item.n || ''));
+              found.push(fullProduct || item); // fallback: käytä hauku_data:n tietoja
+            }
+            return found.filter(Boolean).slice(0, 5);
+          }
+        } catch {}
+      }
     }
   }
-  // Järjestä löydetyt siinä järjestyksessä kuin ne esiintyvät tekstissä
-  found.sort((a, b) => assistNorm.indexOf(norm(a.n)) - assistNorm.indexOf(norm(b.n)));
-  return found.slice(0, 5);
+
+  // Prioriteetti 2: Skannaa taaksepäin → etsi viesti jossa on tuotelista ("Löysin")
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== 'assistant') continue;
+    const content = m.content || '';
+    // Tunnista tuotelista: sisältää "Löysin" tai useita tuotenimiä
+    const isProductList = content.includes('Löysin') || content.includes('löysin') ||
+      content.includes('sopivaa tuotetta') || content.includes('valikoimassamme');
+    if (!isProductList) continue;
+
+    const cleanedContent = content.replace(/<hauku_data>[\s\S]*?<\/hauku_data>/g, '');
+    const contentNorm = norm(cleanedContent);
+    const found = [];
+    for (const p of allProducts) {
+      const pNorm = norm(p.n || '');
+      if (pNorm.length >= 10 && contentNorm.includes(pNorm)) found.push(p);
+    }
+    if (found.length > 0) {
+      found.sort((a, b) => contentNorm.indexOf(norm(a.n)) - contentNorm.indexOf(norm(b.n)));
+      return found.slice(0, 5);
+    }
+  }
+
+  return [];
 }
 
 // ── KORJAUS 2: Follow-up tunnistus ──────────────────────────────────────
