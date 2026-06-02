@@ -202,6 +202,73 @@ export default async function handler(req, res) {
       }
     }
 
+    // 0. Suora ravintoarvo-/tuotekysymys — hae arvo suoraan Shopifysta
+    function checkNutritionQuestion(messages, products) {
+      const userMsgs = messages.filter(m => m.role === 'user');
+      const lastMsg = userMsgs[userMsgs.length - 1]?.content || '';
+      const t = lastMsg.toLowerCase();
+
+      // Tunnista ravintoarvo- tai tuotetietokysymykset
+      const isNutritionQ = /raakaproteiini|raakarasva|raakakuitu|paljonko.*sisältää|kuinka paljon|minkä ikä|minkä koko|mille koiralle|kenelle sopii/.test(t);
+      if (!isNutritionQ) return null;
+
+      // Etsi tuote viimeisestä viestistä tai assistentin vastauksesta (pronominit)
+      let targetProduct = null;
+      for (const p of products) {
+        const pNorm = p.n.toLowerCase();
+        if (pNorm.length >= 8 && t.includes(pNorm)) {
+          if (!targetProduct || pNorm.length > targetProduct.n.length) targetProduct = p;
+        }
+      }
+      if (!targetProduct && /\bse\b|\bsiinä\b|\bsitä\b|\bsillä\b/.test(t)) {
+        const lastAssist = messages.filter(m => m.role === 'assistant').slice(-1)[0]?.content || '';
+        for (const p of products) {
+          const pNorm = p.n.toLowerCase();
+          if (pNorm.length >= 8 && lastAssist.toLowerCase().includes(pNorm)) {
+            if (!targetProduct || pNorm.length > targetProduct.n.length) targetProduct = p;
+          }
+        }
+      }
+      if (!targetProduct) return null;
+
+      const rv = targetProduct.rv || '';
+      const p = targetProduct;
+
+      // Raakaproteiini
+      if (/raakaproteiini/.test(t)) {
+        const m = rv.match(/raakaproteiini[:\s]+([\d.,]+)\s*%/i);
+        if (m) return `**${targetProduct.n}** sisältää raakaproteiinia **${m[1]} %**.`;
+        return `**${targetProduct.n}** — raakaproteiinia ei ole ilmoitettu tietokannassamme. 📋 Tarkistathan pakkauksen.`;
+      }
+      // Raakarasva
+      if (/raakarasva/.test(t)) {
+        const m = rv.match(/raakarasva[:\s]+([\d.,]+)\s*%/i);
+        if (m) return `**${targetProduct.n}** sisältää raakarasvaa **${m[1]} %**.`;
+        if (p.rl) return `**${targetProduct.n}** rasvapitoisuus: **${p.rl}**.`;
+        return `**${targetProduct.n}** — raakarasvaa ei ole ilmoitettu tietokannassamme. 📋 Tarkistathan pakkauksen.`;
+      }
+      // Raakakuitu
+      if (/raakakuitu/.test(t)) {
+        const m = rv.match(/raakakuitu[:\s]+([\d.,]+)\s*%/i);
+        if (m) return `**${targetProduct.n}** sisältää raakakuitua **${m[1]} %**.`;
+        return `**${targetProduct.n}** — raakakuitua ei ole ilmoitettu tietokannassamme.`;
+      }
+      // Ikä/koko/kenelle sopii
+      if (/minkä ikä|minkä koko|mille koiralle|kenelle sopii/.test(t)) {
+        const age = p.i?.join(', ') || 'Ei tietoa';
+        const size = p.k?.join(', ') || 'Ei tietoa';
+        return `**${targetProduct.n}** on tarkoitettu:
+- Ikä: ${age}
+- Koko: ${size}`;
+      }
+      return null;
+    }
+
+    const nutritionAnswer = checkNutritionQuestion(messages, products);
+    if (nutritionAnswer) {
+      return res.status(200).json({ reply: nutritionAnswer });
+    }
+
     // 1. Suora ainesosatarkistus
     const ingredientAnswer = checkIngredientQuestion(messages, products);
     if (ingredientAnswer) {
