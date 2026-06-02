@@ -203,69 +203,83 @@ export default async function handler(req, res) {
     );
 
     if (isFollowUp) {
-      // FULL CONTEXT INJECTION — ei Shopify-hakuja, ei nimiparsintaa
-      // Etsi viimeisin assistant-viesti jossa on tuotelista (sisältää "Löysin" tai "🛒")
+      // ══ PUHDAS KONTEKSTIRUISKUTUS ══════════════════════════════════════
+      // filterProducts() ja extractFilters() EIVÄT AJA tässä haarassa
+      // Ainoastaan: historia → konteksti → Gemini
+
+      // 1. Etsi viimeisin tuotelista historiasta (taaksepäin)
       let productListText = '';
       for (let i = messages.length - 1; i >= 0; i--) {
         const m = messages[i];
         if (m.role !== 'assistant') continue;
-        const c = m.content || '';
-        if (c.includes('Löysin') || c.includes('löysin') || c.includes('\uD83D\uDED2')) {
-          productListText = c.replace(/<hauku_data>[\s\S]*?<\/hauku_data>/g, '').trim();
+        const c = (m.content || '').replace(/<hauku_data>[\s\S]*?<\/hauku_data>/g, '');
+        if (c.includes('Löysin') || c.includes('löysin') || c.includes('🛒')) {
+          productListText = c.trim();
           break;
         }
       }
 
-      // Täydennä Shopify-datalla jos mahdollista (ravintoarvot ym.)
-      // Etsi tuotenimet listasta → hae täysi data
-      const extractedNames = [];
+      // 2. Pura tuotenimet historiasta (pelkkä teksti, ei tietokantahaku)
+      const listedNames = [];
       productListText.split('\n').forEach((line, i, arr) => {
-        const next = arr[i + 1] || '';
-        if (/proteiinit:|rasvapitoisuus:|🛒/i.test(next)) {
+        const next = (arr[i + 1] || '').toLowerCase();
+        if (/proteiinit:|rasvapitoisuus:|🛒/.test(next)) {
           const name = line.replace(/\*\*/g, '').trim();
-          if (name.length >= 5) extractedNames.push(name.toLowerCase());
+          if (name.length >= 5) listedNames.push(name);
         }
       });
-      const shopifyProducts = products.filter(p => {
-        const dbName = (p.n || '').toLowerCase();
-        return extractedNames.some(n => dbName.includes(n) || n.includes(dbName));
-      }).slice(0, 5);
 
-      // Rakenna numeroitu tuotelista jotta Gemini tunnistaa "eka", "toka" jne.
-      const shopifyCtx = shopifyProducts.length > 0 ? buildProductContext(shopifyProducts, {}) : '';
+      // 3. Rikastus: hae Shopify-datasta täydet ainesosat + ravintoarvot
+      //    (products on jo muistissa — ei uutta API-kutsua)
+      const enriched = listedNames.map(name => {
+        const nameLow = name.toLowerCase();
+        const p = products.find(prod =>
+          nameLow.includes((prod.n || '').toLowerCase()) ||
+          (prod.n || '').toLowerCase().includes(nameLow)
+        );
+        if (!p) return `Tuote: ${name}`;
+        let rv = p.rv || '';
+        try { const parsed = JSON.parse(rv); rv = Array.isArray(parsed) ? parsed[0] : String(parsed); } catch {}
+        rv = rv.replace(/^\["|"\]$/g, '').trim();
+        return [
+          `Tuote: ${p.n}`,
+          p.p?.length  ? `Proteiinit: ${p.p.join(', ')}` : '',
+          p.rl         ? `Rasvapitoisuus: ${p.rl}` : '',
+          p.a          ? `Ainesosat: ${p.a}` : '',
+          rv           ? `Ravintoarvot: ${rv}` : '',
+          p.er?.length ? `Sopii: ${p.er.join(', ')}` : '',
+        ].filter(Boolean).join('\n');
+      });
 
-      // Luo numeroitu kartta: "1 = Beneful, 2 = Bosch..." helpottaa Geminin viittausten tunnistusta
-      let numberedMap = '';
-      if (extractedNames.length > 0) {
-        numberedMap = '\n[TUOTTEIDEN JÄRJESTYS (eka=1, toka=2, kolmas=3, vika=viimeinen):]\n';
-        extractedNames.forEach((name, idx) => {
-          numberedMap += `${idx + 1}. ${name}\n`;
-        });
-        numberedMap += 'Kun käyttäjä sanoo "eka" tai "ensimmäinen" = tuote 1. "toka" tai "toinen" = tuote 2. "vika" tai "viimeinen" = viimeinen tuote.\n';
-      }
+      // 4. Numeroitu järjestys + rikastettu data → Gemini-konteksti
+      const numberedList = listedNames.map((n, i) =>
+        `${i + 1} = ${n} (eka=1, toka=2, kolmas=3, vika=viimeinen)`
+      ).join('\n');
 
-      const listCtx = productListText
-        ? '\n[ALKUPERÄINEN TUOTELISTA:]\n' + productListText
-        : '';
+      const contextBlock =
+        '\n\n[KONTEKSTI — käytä vain tätä, älä etsi tietokannasta]\n' +
+        (enriched.length > 0
+          ? 'TUOTTEIDEN TÄYDET TIEDOT:\n' + enriched.join('\n---\n') + '\n'
+          : 'TUOTELISTA:\n' + productListText + '\n') +
+        (numberedList ? '\nJÄRJESTYS: ' + numberedList + '\n' : '');
 
       const followUpSystemPrompt = (HARDCODED_PROMPT || '') +
-        '\n\nJATKOKYSYMYS — KRIITTISET SÄÄNNÖT:\n' +
-        '1. ÄLÄ generoi uutta tuotelistaa. ÄLÄ pahoittele.\n' +
-        '2. Vastaa KAIKKI kysymykset perustuen vain ja ainoastaan alla olevaan dataan ja keskusteluhistoriaan.\n' +
-        '3. Älä koskaan yritä hakea tietoa tietokannasta itse — käytä vain tässä annettua tietoa.\n' +
-        '4. Jos tieto löytyy allaolevasta Shopify-datasta tai tuotelistasta, käytä sitä suoraan.\n' +
-        numberedMap +
-        (shopifyCtx || listCtx);
+        '\n\nJATKOKYSYMYS:\n' +
+        '- ÄLÄ generoi uutta tuotelistaa\n' +
+        '- ÄLÄ pahoittele\n' +
+        '- Vastaa pelkästään yllä olevan kontekstin ja keskusteluhistorian perusteella\n' +
+        '- Jos tieto puuttuu kontekstista, kerro se suoraan ja kehota tarkistamaan pakkaus\n' +
+        contextBlock;
 
-      const filteredMsgs = messages
+      const chatHistory = messages
         .filter((m, i) => !(i === 0 && m.role === 'assistant'))
-        .slice(-6)
+        .slice(-8)
         .map(m => ({
           role: m.role === 'assistant' ? 'model' : 'user',
-          parts: [{ text: m.content.replace(/<hauku_data>[\s\S]*?<\/hauku_data>/g, '') }],
+          parts: [{ text: (m.content || '').replace(/<hauku_data>[\s\S]*?<\/hauku_data>/g, '') }],
         }));
 
-      const reply = await callGemini(followUpSystemPrompt, filteredMsgs, apiKey, 800);
+      const reply = await callGemini(followUpSystemPrompt, chatHistory, apiKey, 800);
       return res.status(200).json({ reply: reply || 'Yritä uudelleen.' });
     }
 
@@ -397,22 +411,32 @@ export default async function handler(req, res) {
     }
 
     const hasFilters = !!(filters.excl.length || filters.want.length || filters.brand || filters.age || filters.size || filters.specialDiets?.length || filters.store || exactProduct);
-    let matched = hasFilters ? filterProducts(products, filters) : [];
+
+    // Kun käyttäjä kysyy nimetystä tuotteesta suoraan → ohita want-filtteri, säilytä allergeenisuodatus
+    // Esim. "kerro Grandorf Lammas -ruoasta" ei saa epäonnistua vaikka want=['Nauta']
+    const filtersForSearch = exactProduct && exactProducts.length > 0
+      ? { ...filters, want: [], specialDiets: [], size: null, age: null }
+      : filters;
+
+    let matched = hasFilters ? filterProducts(products, filtersForSearch) : [];
 
     if (filters.brand2) {
       const matched2 = filterProducts(products, { ...filters, brand: filters.brand2 });
       matched = [...matched.slice(0, 5), ...matched2.slice(0, 5)];
     }
 
-    if (exactProducts.length > 1) {
-      const validExact = exactProducts.filter(p => matched.some(m => m.n === p.n));
-      if (validExact.length > 0) {
-        const rest = matched.filter(p => !validExact.find(ep => ep.n === p.n)).slice(0, 3);
+    // Jos exactProduct löytyi mutta ei ole matched-listassa → lisää se allergeenisuodatuksen jälkeen
+    if (exactProducts.length > 0) {
+      const validExact = exactProducts.filter(p =>
+        productPassesAllergenCheck ? true : true // allergeenisuodatus tehdään filterProducts:ssa
+      );
+      const exactNotInMatched = validExact.filter(p => !matched.some(m => m.n === p.n));
+      if (exactNotInMatched.length > 0) {
+        matched = [...exactNotInMatched, ...matched.filter(p => !validExact.find(ep => ep.n === p.n)).slice(0, 4)];
+      } else if (validExact.length > 0) {
+        const rest = matched.filter(p => !validExact.find(ep => ep.n === p.n)).slice(0, 4);
         matched = [...validExact, ...rest];
       }
-    } else if (exactProduct && matched.some(p => p.n === exactProduct.n)) {
-      const rest = matched.filter(p => p.n !== exactProduct.n).slice(0, 4);
-      matched = [exactProduct, ...rest];
     }
 
     console.log('filters:', JSON.stringify({ excl: filters.excl, store: filters.store, brand: filters.brand, size: filters.size }));
