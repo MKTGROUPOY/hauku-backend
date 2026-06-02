@@ -283,7 +283,7 @@ export default async function handler(req, res) {
         for (const n of nutrientMap) {
           if (n.keys.some(k => new RegExp(k).test(t))) {
             const val = parseNutrient(rv, n.labels);
-            if (val) return `**${targetProduct.n}** — ${n.labels[0]}: **${val} %** (tai vastaava yksikkö).`;
+            if (val) return `**${targetProduct.n}** — ${n.labels[0]}: **${val}**.`;
             // Hae myös kcal erikseen
             if (n.labels.includes('kcal')) {
               const mKcal = rv.match(/(\d+)\s*kcal/i);
