@@ -249,7 +249,11 @@ export default async function handler(req, res) {
 
     // 5b. Epäilyviesti — asiakas kyseenalaistaa lukumäärän tai olemassaoloa
     const latestUserMsg = norm(messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '');
-    const doubtQuestion = /eik[öo]|oletko varma|todellakin|onhan.*enemmän|ei vaan|kyll[äa] on|on niit[äa]|pitäisi olla|pitää olla|ei ole niin|ei vitussa|eivät ole|eivät löydy/.test(latestUserMsg);
+    const doubtQuestion = (
+      /eik[öo]|oletko varma|todellakin|onhan.*enemmän|ei vaan|kyll[äa] on|on niit[äa]|pitäisi olla|pitää olla|ei ole niin|ei vitussa|eivät ole|eivät löydy/.test(latestUserMsg) ||
+      /en usko|sekoilet|sekoilee|sekaisin|väärää tietoa|virheellist|anna väärää|väärin|ei täsmää|ei pidä paikk|ei stimu/.test(latestUserMsg) ||
+      /montako.*oikeasti|oikeasti.*montako|onko oikeasti|oikeasti niitä|kuinka monta oikeasti/.test(latestUserMsg)
+    );
 
     if (doubtQuestion) {
       // Hae brändi nykyisestä tai edellisestä viestistä
