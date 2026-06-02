@@ -231,10 +231,21 @@ export default async function handler(req, res) {
         return extractedNames.some(n => dbName.includes(n) || n.includes(dbName));
       }).slice(0, 5);
 
-      // Rakenna konteksti: Shopify-data + alkuperäinen lista fallbackina
+      // Rakenna numeroitu tuotelista jotta Gemini tunnistaa "eka", "toka" jne.
       const shopifyCtx = shopifyProducts.length > 0 ? buildProductContext(shopifyProducts, {}) : '';
+
+      // Luo numeroitu kartta: "1 = Beneful, 2 = Bosch..." helpottaa Geminin viittausten tunnistusta
+      let numberedMap = '';
+      if (extractedNames.length > 0) {
+        numberedMap = '\n[TUOTTEIDEN JÄRJESTYS (eka=1, toka=2, kolmas=3, vika=viimeinen):]\n';
+        extractedNames.forEach((name, idx) => {
+          numberedMap += `${idx + 1}. ${name}\n`;
+        });
+        numberedMap += 'Kun käyttäjä sanoo "eka" tai "ensimmäinen" = tuote 1. "toka" tai "toinen" = tuote 2. "vika" tai "viimeinen" = viimeinen tuote.\n';
+      }
+
       const listCtx = productListText
-        ? '\n[ALKUPERÄINEN TUOTELISTA TÄSTÄ KESKUSTELUSTA:]\n' + productListText
+        ? '\n[ALKUPERÄINEN TUOTELISTA:]\n' + productListText
         : '';
 
       const followUpSystemPrompt = (HARDCODED_PROMPT || '') +
@@ -243,6 +254,7 @@ export default async function handler(req, res) {
         '2. Vastaa KAIKKI kysymykset perustuen vain ja ainoastaan alla olevaan dataan ja keskusteluhistoriaan.\n' +
         '3. Älä koskaan yritä hakea tietoa tietokannasta itse — käytä vain tässä annettua tietoa.\n' +
         '4. Jos tieto löytyy allaolevasta Shopify-datasta tai tuotelistasta, käytä sitä suoraan.\n' +
+        numberedMap +
         (shopifyCtx || listCtx);
 
       const filteredMsgs = messages
