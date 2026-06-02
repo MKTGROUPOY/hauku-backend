@@ -477,39 +477,83 @@ export default async function handler(req, res) {
       matched = [exactProduct, ...rest];
     }
 
-    // 8. Rakenna konteksti ja kutsu Gemini
-    let productCtx = '';
-    if (filters.brand && matched.length === 0 && !exactProduct) {
-      productCtx = `\n\n[TIETOKANTATIETO: Brändiä "${filters.brand}" ei löydy valikoimastamme. Kerro tämä suoraan.]`;
-    } else if (hasFilters || exactProduct) {
-      productCtx = buildProductContext(matched, filters);
-    }
-
     console.log('filters:', JSON.stringify({ excl: filters.excl, store: filters.store, brand: filters.brand, size: filters.size }));
     console.log('matched:', matched.length);
 
+    // ── REITTI A: TUOTEHAKU — backend generoi listan, Gemini vain intro ──────
+    if (hasFilters) {
+      // Brändi ei löydy
+      if (filters.brand && matched.length === 0 && !exactProduct) {
+        const brandDisplay = filters.brand.charAt(0).toUpperCase() + filters.brand.slice(1);
+        return res.status(200).json({ reply: `${brandDisplay}-merkkiä ei löydy valikoimastamme.` });
+      }
+      // Ei tuloksia
+      if (matched.length === 0) {
+        // Fallback: kokeile ilman specialDiets
+        if (filters.specialDiets?.length > 0) {
+          const fallbackMatched = filterProducts(products, { ...filters, specialDiets: [] });
+          if (fallbackMatched.length > 0) {
+            const productList = buildDirectProductResponse(fallbackMatched, filters);
+            const storeNames = { petenkoiratarvike: 'Peten Koiratarvike', haukkula: 'Koiratarvike Haukkula', zooplus: 'Zooplus' };
+            const storeName = filters.store ? storeNames[filters.store] || filters.store : '';
+            const note = storeName
+              ? `${storeName}lta ei löydy painonhallintaan merkittyjä tuotteita näillä allergeenisuodatuksilla. Muita sopivia vaihtoehtoja:`
+              : 'Painonhallintaan merkittyjä vaihtoehtoja ei löydy. Muita sopivia tuotteita:';
+            return res.status(200).json({ reply: note + '\n\n' + productList });
+          }
+        }
+        return res.status(200).json({ reply: 'Valikoimastamme ei löydy näillä kriteereillä sopivia tuotteita. Haluatko löyhentää jotain rajoitusta?' });
+      }
+
+      // Backend generoi tuotelistan — 100% Shopify-data
+      const productList = buildDirectProductResponse(matched, filters);
+
+      // Gemini kirjoittaa vain lyhyen intron — EI tuotenimiä, EI dataa
+      const storeNames = { petenkoiratarvike: 'Peten Koiratarvike', haukkula: 'Koiratarvike Haukkula', zooplus: 'Zooplus' };
+      const introCtxParts = [];
+      if (filters.excl?.length)  introCtxParts.push(`allergeenit poissuljettu: ${filters.excl.join(', ')}`);
+      if (filters.store)         introCtxParts.push(`kauppa: ${storeNames[filters.store] || filters.store}`);
+      if (filters.age && filters.age !== 'Kaikki') introCtxParts.push(`koiran ikä: ${filters.age}`);
+      if (filters.size && filters.size !== 'Kaikki') introCtxParts.push(`koiran koko: ${filters.size}`);
+      if (filters.specialDiets?.length) introCtxParts.push(`erityistarpeet: ${filters.specialDiets.join(', ')}`);
+      const introCtx = introCtxParts.length > 0 ? `[${introCtxParts.join(', ')}]` : '';
+      const lastUserContent = messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '';
+
+      const introSystemPrompt = `Olet Hauku, koira-asiantuntija. Kirjoita 1-2 lauseen intro-teksti suomeksi.
+SALLITTU: Yleinen toteamus tilanteesta. Voit mainita löydettyjen tuotteiden lukumäärän (${matched.length} kpl).
+KIELLETTY KOKONAAN: tuotenimet, brändit, ainesosat, ravintoarvot, linkit, prosenttiluvut, tuotekuvaukset.
+Palauta VAIN JSON: {"intro":"teksti tähän"}`;
+
+      let intro = '';
+      try {
+        const introRes = await callGemini(introSystemPrompt,
+          [{ role: 'user', parts: [{ text: lastUserContent + (introCtx ? ' ' + introCtx : '') }] }],
+          apiKey, 150);
+        const clean = introRes.replace(/```json|```/g, '').trim();
+        const parsed = JSON.parse(clean);
+        if (typeof parsed.intro === 'string' && parsed.intro.length > 5) intro = parsed.intro;
+      } catch {}
+
+      const reply = intro ? intro + '\n\n' + productList : productList;
+      return res.status(200).json({ reply });
+    }
+
+    // ── REITTI B: YLEINEN KOIRAKYSYMYS — Gemini vastaa ilman tuotedataa ──────
     const brands = [...new Set(products.map(p => p.m || '').filter(Boolean))];
-    const catalogSummary = `\n\n[VALIKOIMAN TIEDOT: ${products.length} tuotetta, ${brands.length} merkkiä. ÄLÄ mainitse tuotenimiä ilman tietokantahakua.]`;
+    const catalogSummary = `\n\n[VALIKOIMAN TIEDOT: ${products.length} tuotetta, ${brands.length} merkkiä. ÄLÄ mainitse tuotenimiä ilman tietokantahakua — kysy ensin koiran tiedot.]`;
     const systemPrompt = (HARDCODED_PROMPT || '') + catalogSummary;
 
     const filteredMessages = messages.filter((m, i) => !(i === 0 && m.role === 'assistant'));
     const lastUserIdx = filteredMessages.map(m => m.role).lastIndexOf('user');
     if (lastUserIdx === -1) return res.status(200).json({ reply: 'Moikka!' });
 
-    const msgsForGemini = filteredMessages.slice(0, lastUserIdx + 1).map((m, i) => ({
+    const msgsForGemini = filteredMessages.slice(0, lastUserIdx + 1).map(m => ({
       role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: (i === filteredMessages.slice(0, lastUserIdx + 1).length - 1 && m.role === 'user' && productCtx) ? m.content + productCtx : m.content }],
+      parts: [{ text: m.content }],
     }));
 
-    let reply = await callGemini(systemPrompt, msgsForGemini, apiKey, 4096);
-    if (!reply) reply = 'Yritä uudelleen.';
-
-    // Poista hallusinoituja väitteitä
-    reply = reply.replace(/,?\s*kuten tauriini[^.]*\./gi, '.');
-    reply = reply.replace(/energiamäärä on [\d.,]+ MJ\/kg[^.]*\./gi, 'Tarkista annostus pakkauksesta.');
-    reply = reply.replace(/noin [\d]+-[\d]+ kcal päivässä[^.]*\./gi, 'Tarkista annostus pakkauksesta.');
-
-    return res.status(200).json({ reply });
+    const reply = await callGemini(systemPrompt, msgsForGemini, apiKey, 2048);
+    return res.status(200).json({ reply: reply || 'Yritä uudelleen.' });
 
   } catch (err) {
     console.error('Handler error:', err.message);
