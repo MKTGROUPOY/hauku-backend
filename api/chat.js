@@ -247,19 +247,36 @@ export default async function handler(req, res) {
       return res.status(200).json({ reply: 'Palvelussamme ei ole hintatietoja. Näet hinnat suoraan ostolinkistä verkkokauppaan.' });
     }
 
-    // 5b. Epäilyviesti — asiakas kyseenalaistaa lukumäärän → backend vastaa aina itse
+    // 5b. Epäilyviesti — asiakas kyseenalaistaa lukumäärän tai olemassaoloa
     const latestUserMsg = norm(messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '');
-    const doubtQuestion = /eik[öo]|oletko varma|varmasti|todellakin|onhan.*enemmän|ei vaan|kyll[äa] on|on niit[äa]|pitäisi olla|pitää olla/.test(latestUserMsg);
-    if (doubtQuestion && filters.brand) {
-      const bNorm2 = norm(filters.brand);
-      const brandCount = products.filter(p =>
-        norm(p.m || '').includes(bNorm2) || norm(p.n || '').includes(bNorm2)
-      ).length;
-      const brandDisplay2 = filters.brand.charAt(0).toUpperCase() + filters.brand.slice(1);
-      if (brandCount === 0) {
-        return res.status(200).json({ reply: `${brandDisplay2}-tuotteita ei löydy valikoimastamme — tietokantamme mukaan.` });
+    const doubtQuestion = /eik[öo]|oletko varma|todellakin|onhan.*enemmän|ei vaan|kyll[äa] on|on niit[äa]|pitäisi olla|pitää olla|ei ole niin|ei vitussa|eivät ole|eivät löydy/.test(latestUserMsg);
+
+    if (doubtQuestion) {
+      // Hae brändi nykyisestä tai edellisestä viestistä
+      let doubtBrand = filters.brand;
+      if (!doubtBrand) {
+        // Etsi brändi viimeisimmästä assistant-vastauksesta
+        const lastAssist = messages.filter(m => m.role === 'assistant').slice(-1)[0]?.content || '';
+        if (products.length > 0) {
+          const BLACKLIST2 = ['hauku', 'ruokakoiralle', 'koiralle', 'koira', 'ruoka', 'peten', 'zooplus', 'haukkula'];
+          const vendors2 = [...new Set(products.map(p => norm(p.m || '')).filter(v => v.length >= 4 && !BLACKLIST2.includes(v)))];
+          for (const v of vendors2) {
+            if (norm(lastAssist).includes(v)) { doubtBrand = v; break; }
+          }
+        }
       }
-      return res.status(200).json({ reply: `Tietokantamme mukaan valikoimassamme on **tasan ${brandCount}** ${brandDisplay2}-tuotetta. En voi muuttaa tätä lukua — se tulee suoraan tuotetietokannastamme.` });
+
+      if (doubtBrand) {
+        const bNorm2 = norm(doubtBrand);
+        const brandCount = products.filter(p =>
+          norm(p.m || '').includes(bNorm2) || norm(p.n || '').includes(bNorm2)
+        ).length;
+        const brandDisplay2 = doubtBrand.charAt(0).toUpperCase() + doubtBrand.slice(1);
+        if (brandCount === 0) {
+          return res.status(200).json({ reply: `${brandDisplay2}-tuotteita ei löydy valikoimastamme. Tämä tieto tulee suoraan tietokannastamme eikä muutu.` });
+        }
+        return res.status(200).json({ reply: `Tietokantamme mukaan valikoimassamme on **tasan ${brandCount}** ${brandDisplay2}-tuotetta. Tämä luku tulee suoraan Shopify-tietokannastamme eikä muutu vaikka sitä kyseenalaistetaan.` });
+      }
     }
 
     // 5. Tuotemäärä — käytä samaa normalisointia kuin bränditunnistus
