@@ -210,7 +210,9 @@ export default async function handler(req, res) {
     // ══════════════════════════════════════════════════════════════════════
 
     // Kapea isNewSearch: vain eksplisiittiset uudet haut
-    const isNewSearch = /(etsin\b|näytä|suosittele|mitä löytyy|mita loytyy|vaihtoehtoja|uusi haku|löytyykö|loytyykö|etsi ruokaa|onko teillä.*ruokaa)/i.test(latestUserMsg);
+    // isNewSearch: eksplisiittinen uusi haku. "miksi suosittelet" ei ole uusi haku.
+    const isNewSearch = /(etsin\b|näytä|\bsuosittele\b|mitä löytyy|mita loytyy|\bvaihtoehtoja\b|uusi haku|löytyykö|loytyykö|etsi ruokaa|onko teillä.*ruokaa)/i.test(latestUserMsg)
+      && !/miksi|miten niin|eikö|oletko varma|huom|virhe/.test(latestUserMsg.toLowerCase());
 
     // Laaja isFollowUp: ASCII-normalisointi + alkuperäinen teksti (ä/ö ongelma kierretty)
     const _ua = latestUserMsg.toLowerCase().replace(/ä/g,'a').replace(/ö/g,'o').replace(/å/g,'a');
