@@ -443,6 +443,39 @@ export default async function handler(req, res) {
       }
     }
 
+    // Tunnista "kerro enemmän X-ruoasta" -kysymykset → hae paras osuma, älä listaa kaikkia
+    const isInfoRequest = /kertoa|kerro|lisaa|lisää|tietoa|tietoja|osaatko kertoa|enemmän|enemman/.test(latestUserNorm) &&
+      !!/[a-zäöå]{4}/.test(latestUserNorm); // jotain nimetty
+    if (isInfoRequest && filters.brand && !exactProduct) {
+      // Etsi paras osuma osanimen perusteella
+      const searchWords = latestUserNorm.split(' ').filter(w => w.length >= 4 &&
+        !['kertoa','kerro','lisaa','tietoa','tietoja','osaatko','ruoasta','ruoalle','enemmän','enemman','paljon','paljonko'].includes(w));
+      const bNormInfo = norm(filters.brand);
+      const candidates = products.filter(p =>
+        (norm(p.m || '').includes(bNormInfo) || norm(p.n || '').includes(bNormInfo)) &&
+        (p.l || p.l2 || p.l3)
+      );
+      // Pisteytetään osumia: kuinka monta hakusanaa löytyy tuotenimestä
+      const scored = candidates.map(p => {
+        const pn = norm(p.n || '');
+        const score = searchWords.filter(w => pn.includes(w)).length;
+        return { p, score };
+      }).filter(x => x.score > 0).sort((a, b) => b.score - a.score);
+
+      if (scored.length > 0) {
+        const bestMatch = scored[0].p;
+        const ctx = buildProductContext([bestMatch], {});
+        const infoPrompt = (HARDCODED_PROMPT || '') +
+          '\n\nKäyttäjä kysyy lisätietoja tästä tuotteesta. Anna kattava kuvaus: ainesosat, ravintoarvot, kenelle sopii, mitä erityistä.\n' + ctx;
+        const chatHistory = messages
+          .filter((m, i) => !(i === 0 && m.role === 'assistant'))
+          .slice(-4)
+          .map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content.replace(/<hauku_data>[\s\S]*?<\/hauku_data>/g, '') }] }));
+        const reply = await callGemini(infoPrompt, chatHistory, apiKey, 1000);
+        return res.status(200).json({ reply: reply || 'Yritä uudelleen.' });
+      }
+    }
+
     const hasFilters = !!(filters.excl.length || filters.want.length || filters.brand || filters.age || filters.size || filters.specialDiets?.length || filters.store || exactProduct);
 
     // Kun käyttäjä kysyy nimetystä tuotteesta tai brändistä suoraan → ohita want-filtteri
