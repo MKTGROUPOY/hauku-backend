@@ -136,7 +136,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ reply: reply || 'Yritä uudelleen.' });
     }
 
-    // ── 3. SUODATUS JA TUOTEHAKU ─────────────────────────────────────────
+    // ── 4. SUODATUS JA TUOTEHAKU ─────────────────────────────────────────
     // Yhdistä pre-set (ohjattu flow) + extractFilters (käyttäjäteksti)
     const extracted = extractFilters(messages);
     const pre = preFilters || {};
@@ -193,7 +193,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ reply: (intro ? intro + '\n\n' : '') + productList + hidden });
     }
 
-    // ── 4. YLEINEN KOIRAKYSYMYS ───────────────────────────────────────────
+    // ── 5. YLEINEN KOIRAKYSYMYS ───────────────────────────────────────────
     const reply = await callGemini(
       SYSTEM_PROMPT + `\n\n[Valikoimassa ${allProducts.length} tuotetta. Kysy koiran tiedot ennen suosituksia.]`,
       messages.filter((m, i) => !(i === 0 && m.role === 'assistant'))
