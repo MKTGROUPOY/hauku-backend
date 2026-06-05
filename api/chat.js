@@ -179,10 +179,18 @@ export default async function handler(req, res) {
     }
 
     // ── 3. TUOTTEIDEN SUODATUS JA HAKU ───────────────────────────────────
-    // Jos ohjattu flow lähetti valmiit suodattimet, käytä niitä suoraan
-    const filters = req.body.preFilters
-      ? { ...req.body.preFilters, brand: null }
-      : extractFilters(messages);
+    // Ohjattu flow: yhdistä pre-set vastaukset (esim. age=Pentu) + käyttäjän teksti
+    const extracted = extractFilters(messages);
+    const pre = req.body.preFilters || {};
+    const filters = {
+      ...extracted,
+      // Pre-set arvot ylikirjoittavat vain jos ne on asetettu
+      age:  pre.age  || extracted.age,
+      store: pre.store || extracted.store,
+      size:  pre.size  || extracted.size,
+      excl:  (pre.excl?.length ? pre.excl : null) || extracted.excl,
+      brand: null,
+    };
 
     // Tunnista brändi — EI tunnisteta "syö nyt X" tai "käyttää X" kontekstista
     // Poistetaan nykyinen ruoka lauseesta ennen bränditunnistusta
