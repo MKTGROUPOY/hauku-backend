@@ -179,7 +179,10 @@ export default async function handler(req, res) {
     }
 
     // ── 3. TUOTTEIDEN SUODATUS JA HAKU ───────────────────────────────────
-    const filters = extractFilters(messages);
+    // Jos ohjattu flow lähetti valmiit suodattimet, käytä niitä suoraan
+    const filters = req.body.preFilters
+      ? { ...req.body.preFilters, brand: null }
+      : extractFilters(messages);
 
     // Tunnista brändi — EI tunnisteta "syö nyt X" tai "käyttää X" kontekstista
     // Poistetaan nykyinen ruoka lauseesta ennen bränditunnistusta
