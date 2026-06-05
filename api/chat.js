@@ -136,6 +136,24 @@ export default async function handler(req, res) {
       return res.status(200).json({ reply: reply || 'Yritä uudelleen.' });
     }
 
+    // ── 3. META-KYSYMYS (käyttäjä kysyy edellisestä vastauksesta) ──────────
+    const isMetaQ =
+      /tarkoittaa|tarkoitat|selitä|selita/.test(latestNorm) ||
+      /löydettyjä tuotteita|loydettyja|kappaletta|sopivaa tuotetta/.test(latestNorm);
+    if (isMetaQ) {
+      const prevProds = loadSession(conversationId) || getProductsFromHistory(messages, allProducts);
+      const ctx = prevProds.length
+        ? 'Aiemmin löydetyt tuotteet: ' + prevProds.map((p, i) => `${i + 1}. ${p.nimi}`).join(', ')
+        : '';
+      const reply = await callGemini(
+        SYSTEM_PROMPT + (ctx ? '\n\n[Konteksti]\n' + ctx : '') + '\n\n[Selitä lyhyesti mitä tarkoitit. ÄLÄ generoi uutta tuotelistaa.]',
+        messages.filter((m, i) => !(i === 0 && m.role === 'assistant'))
+          .map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: (m.content || '').replace(/<hauku_data>[\s\S]*?<\/hauku_data>/g, '') }] })),
+        apiKey, 400
+      );
+      return res.status(200).json({ reply: reply || 'Yritä uudelleen.' });
+    }
+
     // ── 4. SUODATUS JA TUOTEHAKU ─────────────────────────────────────────
     // Yhdistä pre-set (ohjattu flow) + extractFilters (käyttäjäteksti)
     const extracted = extractFilters(messages);
