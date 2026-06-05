@@ -58,8 +58,8 @@ function detectFollowUp(msg, sessionProducts) {
     /\b1\.\b|\b2\.\b|\b3\.\b/.test(msg) ||
     (/paljonko|sisältääkö|sopiiko|mikä ero|miten ero/.test(t) && t.split(' ').length <= 8);
 
-  // Kyseenalaistaa edellisen vastauksen
-  const isChallenge = /^miksi|^miks|eihän|eikö|oletko varma|ne on väärä|nuo ei/.test(t);
+  // Kyseenalaistaa tai kysyy edellisestä vastauksesta
+  const isChallenge = /^miksi|^miks|eihän|eikö|oletko varma|ne on väärä|nuo ei|mitä tarkoitat|mita tarkoitat|mitä se|mita se|selitä|selita/.test(t);
 
   return hasRef || isChallenge;
 }
