@@ -449,7 +449,7 @@ export default async function handler(req, res) {
     // Tunnista "kerro enemmän / kertoa lisää X-ruoasta" → yksittäisen tuotteen tiedot
     const INFO_STOP = ['kertoa','kerro','lisaa','tietoa','tietoja','osaatko','ruoasta',
                        'ruoalle','enemmän','enemman','paljon','paljonko','mita','mitä'];
-    const isInfoRequest = /kertoa|kerro|lisaa|tietoa|osaatko|enemman|enemmän/.test(latestUserNorm);
+    const isInfoRequest = /kertoa|kerro|lisaa|tietoa|osaatko/.test(latestUserNorm) && !/uuden|uusi|vaihtoehto|tarvitsi|halua|ostai|suosittele|uutta ruokaa/.test(latestUserNorm);
     if (isInfoRequest) {
       // Etsi paras osuma SUORAAN tuotenimistä — ei riipu filters.brand-arvosta
       const infoWords = latestUserNorm.split(' ').filter(w => w.length >= 4 && !INFO_STOP.includes(w));
