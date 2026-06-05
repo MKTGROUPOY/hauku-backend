@@ -143,7 +143,9 @@ export default async function handler(req, res) {
 
     // ── 2. TUNNISTA JATKOKYSYMYS ─────────────────────────────────────────
     const sessionProducts = loadSession(conversationId) || getProductsFromHistory(messages, allProducts);
-    const isFollowUp = detectFollowUp(latestMsg, sessionProducts);
+    // "Miksi X?" tai "Eihän X" → asiakas kyseenalaistaa edellisen vastauksen → jatkokysymys
+    const isChallengeQuestion = /^miksi|^miks|eihän|eikö|oletko varma|ei vitussa|miten niin|se on väärä|ne ei ole|nuo ei ole/.test(latestNorm);
+    const isFollowUp = isChallengeQuestion || detectFollowUp(latestMsg, sessionProducts);
 
     if (isFollowUp && sessionProducts.length > 0) {
       // Rakenna konteksti aiemmista tuotteista
@@ -179,14 +181,16 @@ export default async function handler(req, res) {
     // ── 3. TUOTTEIDEN SUODATUS JA HAKU ───────────────────────────────────
     const filters = extractFilters(messages);
 
-    // Tunnista brändi
+    // Tunnista brändi — EI tunnisteta "syö nyt X" tai "käyttää X" kontekstista
+    // Poistetaan nykyinen ruoka lauseesta ennen bränditunnistusta
+    const currentFoodCtx = latestNorm.replace(/syö\s+nyt\s+\S+(\s+\S+){0,4}|syö\s+tällä\s+hetkellä\s+\S+(\s+\S+){0,4}|käyttää\s+nyt\s+\S+(\s+\S+){0,4}|ostaa\s+nyt\s+\S+(\s+\S+){0,4}/g, ' ');
     const brandBlacklist = new Set(['hauku', 'ruokakoiralle', 'koiralle', 'koira', 'ruoka', 'peten', 'zooplus', 'haukkula']);
     const vendors = [...new Set(allProducts.map(p => norm(p.m || '')).filter(v => v.length >= 4 && !brandBlacklist.has(v)))]
       .sort((a, b) => b.length - a.length);
     for (const v of vendors) {
       const base = v.replace(/[^a-zäöå]/g, '');
-      if (latestNorm.includes(v) || latestNorm.includes(base + 'in') || latestNorm.includes(base + 'ia') ||
-          latestNorm.includes(base + 'lla') || latestNorm.includes(base + 'sta') || latestNorm.includes(base + 'n')) {
+      if (currentFoodCtx.includes(v) || currentFoodCtx.includes(base + 'in') || currentFoodCtx.includes(base + 'ia') ||
+          currentFoodCtx.includes(base + 'lla') || currentFoodCtx.includes(base + 'sta') || currentFoodCtx.includes(base + 'n')) {
         filters.brand = v;
         break;
       }
@@ -198,9 +202,9 @@ export default async function handler(req, res) {
     );
 
     if (hasFilters) {
-      // Brändikyselyissä: näytä kaikki brändin tuotteet ilman tiukkoja rajoituksia
+      // Brändikyselyissä: säilytä ikä/koko mutta löyhennä want/specialDiets
       const searchFilters = filters.brand
-        ? { ...filters, want: [], specialDiets: [], size: null, age: null }
+        ? { ...filters, want: [], specialDiets: [] }
         : filters;
 
       let matched = filterProducts(allProducts, searchFilters);
@@ -243,7 +247,7 @@ export default async function handler(req, res) {
       let intro = '';
       try {
         const introRes = await callGemini(
-          'Olet Hauku. Kirjoita 1-2 lyhyttä lausetta suomeksi. Kerro löydetyistä tuloksista lämpimästi. ÄLÄ mainitse tuotenimiä, brändejä tai ravintoarvoja. Palauta VAIN JSON: {"intro":"lause tähän"}',
+          'Olet Hauku. Kirjoita 1 lyhyt lause suomeksi. ÄLÄ aloita "Hienoa", "Loistava" tai muulla ylistyksellä. ÄLÄ mainitse tuotenimiä, brändejä tai ravintoarvoja. Palauta VAIN JSON: {"intro":"lause tähän"}',
           [{ role: 'user', parts: [{ text: `${matched.length} sopivaa tuotetta löytyi. ${ctxParts.join(', ')}` }] }],
           apiKey, 100
         );
