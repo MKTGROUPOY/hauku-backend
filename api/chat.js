@@ -118,7 +118,25 @@ export default async function handler(req, res) {
     if (!messages?.length) return res.status(400).json({ error: 'messages required' });
 
     const apiKey = process.env.GEMINI_API_KEY;
-    const allProducts = getProducts();
+
+    let allProducts;
+    try {
+      allProducts = getProducts();
+    } catch (err) {
+      console.error('Hauku: tuotetietokannan lataus epäonnistui:', err.message);
+      return res.status(200).json({
+        reply: 'Tekninen häiriö tuotetietokannan lataamisessa. Yritä hetken päästä uudelleen.',
+        error: 'products_load_failed: ' + err.message,
+      });
+    }
+    if (!Array.isArray(allProducts) || allProducts.length === 0) {
+      console.error('Hauku: allProducts tyhjä tai ei array. Tyyppi:', typeof allProducts, 'Pituus:', allProducts?.length);
+      return res.status(200).json({
+        reply: 'Tuotetietokanta on tilapäisesti tyhjä. Yritä hetken päästä uudelleen.',
+        error: 'products_empty',
+      });
+    }
+
     const latestMsg = messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '';
     const latestNorm = norm(latestMsg);
 
