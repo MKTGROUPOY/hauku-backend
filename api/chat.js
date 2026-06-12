@@ -161,24 +161,25 @@ export default async function handler(req, res) {
     const isFollowUp = detectFollowUp(latestMsg, sessionProducts) || !!mentionedProduct;
 
     if (isFollowUp) {
+      // TÄYDET tiedot JOKAISESTA session-tuotteesta JOKA KERTA — myös "ei sisällä" -lista.
+      // Tämä on PAKOLLISTA: keskusteluhistoria rajataan (slice -8), joten aiemman
+      // viestin sisältämä "ei sisällä" -lista voi pudota pois kontekstista.
+      // Jos tätä ei toisteta jokaisessa jatkokysymyksessä, botti vastaa "ei tietoa"
+      // vaikka tieto olisi olemassa — eli näyttää epäjohdonmukaiselta/hallusinoivalta.
       const ctx = sessionProducts.map((p, i) =>
-        `${i + 1}. ${p.nimi} | Rasva: ${p.rasva || '-'} | Erikois: ${(p.erikois || []).join(', ') || '-'}`
-      ).join('\n');
-
-      // Jos viesti viittaa tiettyyn tuotteeseen, anna sen TÄYDET tiedot
-      let productDetail = '';
-      if (mentionedProduct) {
-        productDetail = `\n\nKysytty tuote tarkemmin:\nNimi: ${mentionedProduct.nimi}\nRasvataso: ${mentionedProduct.rasva || '-'}\nIkä: ${(mentionedProduct.ika||[]).join(', ') || '-'}\nKoko: ${(mentionedProduct.koko||[]).join(', ') || '-'}\nErikoisominaisuudet: ${(mentionedProduct.erikois||[]).join(', ') || '-'}\nTämä tuote EI sisällä: ${(mentionedProduct.vapaa||[]).join(', ') || '(ei tietoa)'}\nOstolinkki: ${mentionedProduct.linkki || '-'}`;
-      }
+        `${i + 1}. ${p.nimi}\n   Rasvataso: ${p.rasva || '-'}\n   Ikä: ${(p.ika||[]).join(', ') || '-'}\n   Koko: ${(p.koko||[]).join(', ') || '-'}\n   Erikoisominaisuudet: ${(p.erikois || []).join(', ') || '-'}\n   Tämä tuote EI sisällä: ${(p.vapaa||[]).join(', ') || '(ei tietoa)'}\n   Ostolinkki: ${p.linkki || '-'}`
+      ).join('\n\n');
 
       const followUpPrompt = SYSTEM_PROMPT +
-        '\n\n[JATKOKYSYMYS — vastaa käyttäjän kysymykseen annetun datan perusteella. ÄLÄ generoi uutta tuotelistaa.]' +
-        '\nAiemmin löydetyt tuotteet:\n' + (ctx || '(ei aiempaa listaa)') + productDetail +
-        '\n\nHUOM: Jos kysytään ainesosasta jota ei mainita yllä (esim. tarkka mauste kuten oregano), sano rehellisesti että tarkkaa ainesosaluetteloa ei ole tietokannassamme ja kehota tarkistamaan pakkauksesta. ÄLÄ arvaa.';
+        '\n\n[JATKOKYSYMYS — vastaa käyttäjän kysymykseen alla olevan datan perusteella. ÄLÄ generoi uutta tuotelistaa.]' +
+        '\n\nAiemmin löydetyt tuotteet (TÄYDELLISET TIEDOT):\n' + (ctx || '(ei aiempaa listaa)') +
+        '\n\nHUOM 1: "Tämä tuote EI sisällä" -lista on KÄÄNTEINEN — jos kysytty raaka-aine ON tässä listassa, tuote EI sisällä sitä (vastaa "Ei, ei sisällä X:ää").' +
+        '\nHUOM 2: Jos kysytty ainesosa (esim. tarkka mauste kuten oregano) EI ole listassa eikä muuallakaan annetussa datassa, sano rehellisesti että tätä ei ole eritelty tietokannassa ja kehota tarkistamaan pakkauksesta. ÄLÄ arvaa.' +
+        '\nHUOM 3: Tuotteen NIMI voi paljastaa pääraaka-aineen (esim. "...Lohi" = lohi/kala on pääproteiini) — voit käyttää tätä vastatessasi.';
 
       const reply = await callGemini(
         followUpPrompt,
-        messages.filter((m, i) => !(i === 0 && m.role === 'assistant')).slice(-6)
+        messages.filter((m, i) => !(i === 0 && m.role === 'assistant')).slice(-8)
           .map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: (m.content || '').replace(/<hauku_data>[\s\S]*?<\/hauku_data>/g, '') }] })),
         apiKey, 600
       );
