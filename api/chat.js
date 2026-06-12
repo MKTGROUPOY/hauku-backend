@@ -9,7 +9,7 @@
 //  - Yleinen polku (5): malli ei saa mainita yhtään tuotenimeä, koska sille
 //    ei anneta tuotedataa
 
-import { extractFilters, filterProducts, buildDirectProductResponse } from '../lib/filters.js';
+import { extractFilters, filterProducts, buildDirectProductResponse, allergenText } from '../lib/filters.js';
 import { getProducts } from '../lib/products.js';
 import { SYSTEM_PROMPT } from '../lib/system-prompt.js';
 
@@ -239,13 +239,24 @@ export default async function handler(req, res) {
 
       const productList = buildDirectProductResponse(matched, filters);
 
-      // Gemini kirjoittaa lyhyen intron
+      // Gemini kirjoittaa lämpimän, tilannekohtaisen intron — faktat tulevat
+      // suodattimista, malli ei saa keksiä tuotenimiä eikä uusia väitteitä
       let intro = '';
       try {
+        const tilanne = [
+          filters.excl?.length ? `allergiat/vältettävät: ${allergenText(filters.excl)}` : '',
+          filters.age ? `ikäluokka: ${filters.age}` : '',
+          filters.size ? `kokoluokka: ${filters.size}` : '',
+          filters.store ? `toivottu kauppa: ${filters.store}` : '',
+        ].filter(Boolean).join(', ');
+
         const introRes = await callGemini(
-          'Olet Hauku. Kirjoita YKSI lyhyt lause suomeksi löydetyistä tuotteista. ÄLÄ aloita "Hienoa" tai ylistyssanoilla. ÄLÄ mainitse tuotenimiä. Palauta VAIN JSON: {"intro":"lause"}',
-          [{ role: 'user', parts: [{ text: `${matched.length} sopivaa tuotetta löytyi.` }] }],
-          apiKey, 80
+          'Olet Hauku, lämmin koira-asiantuntija. Kirjoita 1-2 lyhyttä, ystävällistä lausetta suomeksi, jotka esittelevät löydetyt tuotteet asiakkaalle. ' +
+          'Jos koiralla on allergioita, mainitse että nämä ruoat on valittu niin, etteivät ne sisällä kyseisiä ainesosia. ' +
+          'ÄLÄ mainitse tuotenimiä. ÄLÄ aloita sanoilla "Hienoa" tai "Loistavaa". ÄLÄ lupaa mitään mitä tiedoissa ei lue. ' +
+          'Palauta VAIN JSON: {"intro":"teksti"}',
+          [{ role: 'user', parts: [{ text: `Koiran tiedot: ${tilanne || 'ei erityisvaatimuksia'}. Sopivia tuotteita löytyi ${matched.length} kpl.` }] }],
+          apiKey, 150
         );
         const clean = introRes.replace(/```json|```/g, '').trim();
         const parsed = JSON.parse(clean);
