@@ -32,12 +32,25 @@ async function callGemini(system, msgs, apiKey, maxTokens = 1500) {
         system_instruction: { parts: [{ text: system }] },
         contents: msgs,
         generationConfig: { maxOutputTokens: maxTokens, temperature: 0.0 },
+        safetySettings: [
+          { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
+          { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_ONLY_HIGH' },
+          { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
+          { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' },
+        ],
       }),
     }
   );
   if (!res.ok) throw new Error(`Gemini ${res.status}: ${await res.text()}`);
   const data = await res.json();
-  return data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+
+  const cand = data.candidates?.[0];
+  const text = cand?.content?.parts?.[0]?.text;
+  if (text) return text;
+
+  // Tyhjä vastaus — selvitä syy ja heitä virhe jotta se näkyy lokeissa/widgetissä
+  const reason = cand?.finishReason || data.promptFeedback?.blockReason || 'UNKNOWN';
+  throw new Error(`Gemini empty response (reason: ${reason})`);
 }
 
 // ── Onko jatkokysymys? ────────────────────────────────────────────────────
