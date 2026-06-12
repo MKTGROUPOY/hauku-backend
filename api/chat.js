@@ -1,23 +1,10 @@
-// api/chat.js — Hauku v7 — JSON-tietokanta
-// MUUTOKSET v6 → v7:
-//  - sessionData sisältää nyt myös "vapaa"-listan (mitä tuote EI sisällä)
-//    → jatkokysymyksissä malli näkee allergiadatan eikä joudu arvaamaan
-//  - detectFollowUp: selkeä viittaus aiempaan tuotteeseen ("sisältääkö eka
-//    kanaa?") menee nyt jatkokysymyspolkuun, vaikka viestissä on allergeenisana
-//  - Jatkokysymys- ja meta-polut saavat eksplisiittisen ohjeen: jos kysyttyä
-//    tietoa ei ole annetussa datassa, vastaa "en voi vahvistaa" — EI arvailua
-//  - Yleinen polku (5): malli ei saa mainita yhtään tuotenimeä, koska sille
-//    ei anneta tuotedataa
+// api/chat.js — Hauku v6 — JSON-tietokanta
 
-import { extractFilters, filterProducts, buildDirectProductResponse, allergenText } from '../lib/filters.js';
+import { extractFilters, filterProducts, buildDirectProductResponse } from '../lib/filters.js';
 import { getProducts } from '../lib/products.js';
 import { SYSTEM_PROMPT } from '../lib/system-prompt.js';
 
 // ── Sessiomuisti ──────────────────────────────────────────────────────────
-// HUOM: Vercelin serverless-ympäristössä tämä Map ei säily kutsujen välillä
-// luotettavasti (jokainen kylmäkäynnistys tyhjentää sen). Varsinainen
-// pysyvyys tulee getProductsFromHistory-funktiosta, joka lukee tuotteet
-// viestihistorian <hauku_data>-blokeista.
 const sessions = new Map();
 function saveSession(id, products) {
   if (!id || !products?.length) return;
@@ -54,62 +41,30 @@ async function callGemini(system, msgs, apiKey, maxTokens = 1500) {
 }
 
 // ── Onko jatkokysymys? ────────────────────────────────────────────────────
+// Vain selkeät viittaukset aiempiin tuotteisiin — ei tavalliset suomen sanat
 function detectFollowUp(msg, sessionProducts) {
   if (!sessionProducts?.length) return false;
   const t = norm(msg);
 
-  // Uuden haun signaalit ohittavat kaiken
-  if (/etsi|etsin|suosittele|löytyykö|loytyyko|haen|sopivaa ruokaa|mita ruokaa|mitä ruokaa/.test(t)) return false;
+  // Kyseenalaistaa tai kysyy edellisestä vastauksesta — TARKISTA ENSIN
+  // (ennen hasNewContext, koska "oletko varma ei sisällä kanaa" sisältää "kana")
+  const isChallenge = /^miksi|^miks|eihän|eikö|oletko varma|ootko varma|ne on väärä|nuo ei|mitä tarkoitat|mita tarkoitat|mitä se|mita se|selitä|selita|onko varma|tosiaan/.test(t);
+  if (isChallenge) return true;
 
-  // MUUTOS: selkeä viittaus aiempaan tuotteeseen tarkistetaan ENNEN
-  // allergeenisanoja. "Sisältääkö eka kanaa?" on jatkokysymys aiemmasta
-  // tuotteesta — ei uusi haku — ja se pitää vastata tuotedatalla,
-  // ei arvaamalla.
+  // Uuden haun signaalit ohittavat follow-up tunnistuksen
+  if (/etsi|etsin|suosittele|löytyykö|loytyykö|haen|sopivaa ruokaa|mita ruokaa/.test(t)) return false;
+
+  // Uutta tietoa koirasta = uusi haku
+  if (/kk ikain|vuotias|\bpentu\b|seniori|peten|haukkula|zooplus|allergi/.test(t)) return false;
+
+  // Selkeät viittaukset aiempaan listaan
   const hasRef =
-    /\beka\b|\btoka\b|\bkolmas\b|\bensimmäinen\b|\btoinen\b|\bviimeinen\b|\bse\b|\btuo\b|\btoi\b|\btämä\b|\btää\b/.test(t) ||
+    /\beka\b|\btoka\b|\bkolmas\b|\bensimmäinen\b|\btoinen\b|\bviimeinen\b/.test(t) ||
     /\b1\.\b|\b2\.\b|\b3\.\b/.test(msg) ||
-    (/paljonko|sisältääkö|sisaltaako|sopiiko|mikä ero|mika ero|miten ero/.test(t) && t.split(' ').length <= 10);
+    (/paljonko|sisältääkö|sopiiko|mikä ero|miten ero/.test(t) && t.split(' ').length <= 8);
 
-  const isChallenge = /^miksi|^miks|eihän|eikö|oletko varma|ne on väärä|nuo ei|mitä tarkoitat|mita tarkoitat|mitä se|mita se|selitä|selita/.test(t);
-
-  if (hasRef || isChallenge) return true;
-
-  // Uutta tietoa koirasta ilman viittausta aiempaan = uusi haku
-  if (/kk ikain|vuotias|pentu|seniori|peten|haukkula|zooplus|allergi|kana|nauta|lammas|kala/.test(t)) return false;
-
-  return false;
+  return hasRef;
 }
-
-// ── Tuotekontekstin rakennus mallille ─────────────────────────────────────
-// MUUTOS: sisältää nyt "Ei sisällä" -listan, joka on ainoa allergiadata
-// jonka tietokanta tarjoaa. Malli ohjeistetaan vastaamaan VAIN tällä datalla.
-function buildProductCtx(products) {
-  return products.map((p, i) => {
-    const vapaa = (p.vapaa || []).slice(0, 25);
-    const aines = (p.ainesosat || '').trim();
-    return `${i + 1}. ${p.nimi}
-   Ainesosat: ${aines ? aines.slice(0, 600) : 'EI SAATAVILLA'}
-   Ravintoaineet: ${(p.ravinto || '').trim() ? (p.ravinto || '').slice(0, 300) : 'EI SAATAVILLA'}
-   Ei sisällä (vahvistettu): ${vapaa.length ? vapaa.join(', ') : 'EI TIETOA'}
-   Rasvataso: ${p.rasva || 'ei tietoa'}
-   Erikoisominaisuudet: ${(p.erikois || []).join(', ') || '-'}
-   Linkki: ${p.linkki || '-'}`;
-  }).join('\n');
-}
-
-const NO_GUESS_RULE = `
-KRIITTINEN TURVALLISUUSSÄÄNTÖ — LUE TARKKAAN:
-- Jos tuotteella on "Ainesosat"-lista yllä: kun kysytään sisältääkö tuote
-  jotain, lue lista SANA SANALTA, huomioi myös osittaiset osumat
-  ("kananrasva" sisältää kanaa). Vastaa vain listan perusteella.
-- Jos tuotteen kohdalla lukee "Ainesosat: EI SAATAVILLA": tiedät VAIN mitä
-  tuote EI sisällä ("Ei sisällä" -lista). Jos kysytty ainesosa on listalla →
-  tuote ei sisällä sitä. Jos EI ole listalla → vastaa: "En voi vahvistaa
-  tätä varmasti — tarkistathan tuotesivulta tai pakkauksesta."
-- ÄLÄ KOSKAAN päättele, arvaa tai oleta. Väärä vastaus allergiakysymykseen
-  voi olla koiralle hengenvaarallinen.
-- Sama sääntö ravintoarvoille, annosmäärille ja kaikelle datalle jota yllä
-  ei ole.`;
 
 // ── Etsi aiemmat tuotteet historiasta ────────────────────────────────────
 function getProductsFromHistory(messages, allProducts) {
@@ -121,8 +76,6 @@ function getProductsFromHistory(messages, allProducts) {
       try {
         const parsed = JSON.parse(dataMatch[1]);
         if (Array.isArray(parsed) && parsed.length) {
-          // Yhdistä takaisin täyteen tuotedataan nimellä → saadaan koko
-          // vapaa-lista vaikka vanha hauku_data olisi suppea
           return parsed.map(item =>
             allProducts.find(p => norm(p.nimi) === norm(item.nimi)) || item
           );
@@ -152,7 +105,7 @@ export default async function handler(req, res) {
     if (!messages?.length) return res.status(400).json({ error: 'messages required' });
 
     const apiKey = process.env.GEMINI_API_KEY;
-    const allProducts = await getProducts(); // Shopify-haku on async
+    const allProducts = getProducts();
     const latestMsg = messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '';
     const latestNorm = norm(latestMsg);
 
@@ -166,14 +119,36 @@ export default async function handler(req, res) {
       return res.status(200).json({ reply: '⚠️ **Mene välittömästi eläinlääkäriin.** Älä odota oireiden pahenemista.' });
     }
 
-    // ── 2. JATKOKYSYMYS ──────────────────────────────────────────────────
+    // ── 2. JATKOKYSYMYS / TUOTEKOHTAINEN KYSYMYS ─────────────────────────
     const sessionProducts = loadSession(conversationId) || getProductsFromHistory(messages, allProducts);
-    if (detectFollowUp(latestMsg, sessionProducts)) {
+
+    // Mainitseeko viesti suoraan jonkin tuotteen nimen? (esim. "kerro tästä: GRANDORF FRESH...")
+    let mentionedProduct = null;
+    const msgLow = latestMsg.toLowerCase();
+    for (const p of allProducts) {
+      if (p.nimi && p.nimi.length > 6 && msgLow.includes(p.nimi.toLowerCase())) {
+        mentionedProduct = p;
+        break;
+      }
+    }
+
+    const isFollowUp = detectFollowUp(latestMsg, sessionProducts) || !!mentionedProduct;
+
+    if (isFollowUp) {
+      const ctx = sessionProducts.map((p, i) =>
+        `${i + 1}. ${p.nimi} | Rasva: ${p.rasva || '-'} | Erikois: ${(p.erikois || []).join(', ') || '-'}`
+      ).join('\n');
+
+      // Jos viesti viittaa tiettyyn tuotteeseen, anna sen TÄYDET tiedot
+      let productDetail = '';
+      if (mentionedProduct) {
+        productDetail = `\n\nKysytty tuote tarkemmin:\nNimi: ${mentionedProduct.nimi}\nRasvataso: ${mentionedProduct.rasva || '-'}\nIkä: ${(mentionedProduct.ika||[]).join(', ') || '-'}\nKoko: ${(mentionedProduct.koko||[]).join(', ') || '-'}\nErikoisominaisuudet: ${(mentionedProduct.erikois||[]).join(', ') || '-'}\nTämä tuote EI sisällä: ${(mentionedProduct.vapaa||[]).join(', ') || '(ei tietoa)'}\nOstolinkki: ${mentionedProduct.linkki || '-'}`;
+      }
+
       const followUpPrompt = SYSTEM_PROMPT +
-        '\n\n[JATKOKYSYMYS — vastaa lyhyesti, ÄLÄ generoi uutta tuotelistaa]' +
-        '\nAiemmin löydetyt tuotteet ja niiden AINOA käytettävissä oleva data:\n' +
-        buildProductCtx(sessionProducts) +
-        '\n' + NO_GUESS_RULE;
+        '\n\n[JATKOKYSYMYS — vastaa käyttäjän kysymykseen annetun datan perusteella. ÄLÄ generoi uutta tuotelistaa.]' +
+        '\nAiemmin löydetyt tuotteet:\n' + (ctx || '(ei aiempaa listaa)') + productDetail +
+        '\n\nHUOM: Jos kysytään ainesosasta jota ei mainita yllä (esim. tarkka mauste kuten oregano), sano rehellisesti että tarkkaa ainesosaluetteloa ei ole tietokannassamme ja kehota tarkistamaan pakkauksesta. ÄLÄ arvaa.';
 
       const reply = await callGemini(
         followUpPrompt,
@@ -191,10 +166,10 @@ export default async function handler(req, res) {
     if (isMetaQ) {
       const prevProds = loadSession(conversationId) || getProductsFromHistory(messages, allProducts);
       const ctx = prevProds.length
-        ? '\n\n[Konteksti — aiemmin löydetyt tuotteet]\n' + buildProductCtx(prevProds) + '\n' + NO_GUESS_RULE
+        ? 'Aiemmin löydetyt tuotteet: ' + prevProds.map((p, i) => `${i + 1}. ${p.nimi}`).join(', ')
         : '';
       const reply = await callGemini(
-        SYSTEM_PROMPT + ctx + '\n\n[Selitä lyhyesti mitä tarkoitit. ÄLÄ generoi uutta tuotelistaa.]',
+        SYSTEM_PROMPT + (ctx ? '\n\n[Konteksti]\n' + ctx : '') + '\n\n[Selitä lyhyesti mitä tarkoitit. ÄLÄ generoi uutta tuotelistaa.]',
         messages.filter((m, i) => !(i === 0 && m.role === 'assistant'))
           .map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: (m.content || '').replace(/<hauku_data>[\s\S]*?<\/hauku_data>/g, '') }] })),
         apiKey, 400
@@ -203,6 +178,7 @@ export default async function handler(req, res) {
     }
 
     // ── 4. SUODATUS JA TUOTEHAKU ─────────────────────────────────────────
+    // Yhdistä pre-set (ohjattu flow) + extractFilters (käyttäjäteksti)
     const extracted = extractFilters(messages);
     const pre = preFilters || {};
     const filters = {
@@ -210,10 +186,7 @@ export default async function handler(req, res) {
       age:   pre.age   || extracted.age,
       store: pre.store || extracted.store,
       size:  pre.size  || extracted.size,
-      // MUUTOS: allergeenit YHDISTETÄÄN, ei korvata. Jos ohjattu flow antaa
-      // "Kana" ja käyttäjä kirjoittaa lisäksi "myös nauta-allergia",
-      // molemmat pysyvät voimassa.
-      excl:  [...new Set([...(pre.excl || []), ...(extracted.excl || [])])],
+      excl:  (pre.excl?.length ? pre.excl : null) || extracted.excl,
       brand: null,
     };
 
@@ -225,54 +198,35 @@ export default async function handler(req, res) {
     if (hasFilters) {
       let matched = filterProducts(allProducts, filters);
 
-      // Fallback: jos ei tuloksia, löyhennä erikoisruokavalioita.
-      // HUOM: allergeenipoissulkuja (excl) EI koskaan löyhennetä.
+      // Fallback: jos ei tuloksia, löyhennä erikoisruokavalioita
       if (matched.length === 0 && filters.specialDiets?.length) {
         matched = filterProducts(allProducts, { ...filters, specialDiets: [] });
       }
 
       if (matched.length === 0) {
         return res.status(200).json({
-          reply: 'Näillä kriteereillä ei löydy sopivia tuotteita valikoimastamme. Haluatko kokeilla löyhemmillä rajoituksilla? (Allergiarajoituksista en jousta turvallisuussyistä.)'
+          reply: 'Näillä kriteereillä ei löydy sopivia tuotteita valikoimastamme. Haluatko kokeilla löyhemmillä rajoituksilla?'
         });
       }
 
       const productList = buildDirectProductResponse(matched, filters);
 
-      // Gemini kirjoittaa lämpimän, tilannekohtaisen intron — faktat tulevat
-      // suodattimista, malli ei saa keksiä tuotenimiä eikä uusia väitteitä
+      // Gemini kirjoittaa lyhyen intron
       let intro = '';
       try {
-        const tilanne = [
-          filters.excl?.length ? `allergiat/vältettävät: ${allergenText(filters.excl)}` : '',
-          filters.age ? `ikäluokka: ${filters.age}` : '',
-          filters.size ? `kokoluokka: ${filters.size}` : '',
-          filters.store ? `toivottu kauppa: ${filters.store}` : '',
-        ].filter(Boolean).join(', ');
-
         const introRes = await callGemini(
-          'Olet Hauku, lämmin koira-asiantuntija. Kirjoita 1-2 lyhyttä, ystävällistä lausetta suomeksi, jotka esittelevät löydetyt tuotteet asiakkaalle. ' +
-          'Jos koiralla on allergioita, mainitse että nämä ruoat on valittu niin, etteivät ne sisällä kyseisiä ainesosia. ' +
-          'ÄLÄ mainitse tuotenimiä. ÄLÄ aloita sanoilla "Hienoa" tai "Loistavaa". ÄLÄ lupaa mitään mitä tiedoissa ei lue. ' +
-          'Palauta VAIN JSON: {"intro":"teksti"}',
-          [{ role: 'user', parts: [{ text: `Koiran tiedot: ${tilanne || 'ei erityisvaatimuksia'}. Sopivia tuotteita löytyi ${matched.length} kpl.` }] }],
-          apiKey, 150
+          'Olet Hauku. Kirjoita YKSI lyhyt lause suomeksi löydetyistä tuotteista. ÄLÄ aloita "Hienoa" tai ylistyssanoilla. ÄLÄ mainitse tuotenimiä. Palauta VAIN JSON: {"intro":"lause"}',
+          [{ role: 'user', parts: [{ text: `${matched.length} sopivaa tuotetta löytyi.` }] }],
+          apiKey, 80
         );
         const clean = introRes.replace(/```json|```/g, '').trim();
         const parsed = JSON.parse(clean);
         if (parsed.intro?.length > 5) intro = parsed.intro;
       } catch {}
 
-      // Tallenna sessio — MUUTOS: vapaa-lista mukaan, jotta jatkokysymykset
-      // allergioista voidaan vastata datalla eikä arvaamalla
+      // Tallenna sessio
       const sessionData = matched.slice(0, 5).map(p => ({
-        nimi: p.nimi,
-        rasva: p.rasva,
-        erikois: p.erikois?.slice(0, 4),
-        vapaa: (p.vapaa || []).slice(0, 25),
-        ainesosat: (p.ainesosat || '').slice(0, 400),
-        ravinto: (p.ravinto || '').slice(0, 300),
-        linkki: p.linkki,
+        nimi: p.nimi, rasva: p.rasva, erikois: p.erikois?.slice(0, 4), linkki: p.linkki,
       }));
       if (conversationId) saveSession(conversationId, sessionData);
 
@@ -281,11 +235,8 @@ export default async function handler(req, res) {
     }
 
     // ── 5. YLEINEN KOIRAKYSYMYS ───────────────────────────────────────────
-    // MUUTOS: mallille kerrotaan eksplisiittisesti ettei sillä ole tuotedataa
-    // tässä tilassa, joten se EI saa mainita yhtään tuotenimeä. Tämä poistaa
-    // suurimman hallusinaatiolähteen.
     const reply = await callGemini(
-      SYSTEM_PROMPT + `\n\n[TILA: YLEINEN KESKUSTELU — sinulle EI ole annettu tuotedataa tässä viestissä. ÄLÄ mainitse, suosittele tai nimeä YHTÄÄN yksittäistä tuotetta tai tuotemerkkiä. Jos asiakas haluaa tuotesuosituksia, kysy koiran tiedot (ikä, koko/rotu, allergiat) — haku tehdään niiden perusteella automaattisesti.]`,
+      SYSTEM_PROMPT + `\n\n[Valikoimassa ${allProducts.length} tuotetta. Kysy koiran tiedot ennen suosituksia.]`,
       messages.filter((m, i) => !(i === 0 && m.role === 'assistant'))
         .map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: (m.content || '').replace(/<hauku_data>[\s\S]*?<\/hauku_data>/g, '') }] })),
       apiKey
