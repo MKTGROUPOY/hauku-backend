@@ -225,10 +225,12 @@ export default async function handler(req, res) {
 
     if (hasFilters) {
       let matched = filterProducts(allProducts, filters);
+      let droppedSpecialDiets = false;
 
-      // Fallback: jos ei tuloksia, löyhennä erikoisruokavalioita
+      // Fallback: jos ei tuloksia, löyhennä erikoisruokavalioita — KERTO tästä käyttäjälle
       if (matched.length === 0 && filters.specialDiets?.length) {
         matched = filterProducts(allProducts, { ...filters, specialDiets: [] });
+        droppedSpecialDiets = true;
       }
 
       if (matched.length === 0) {
@@ -238,6 +240,9 @@ export default async function handler(req, res) {
       }
 
       const productList = buildDirectProductResponse(matched, filters);
+      const fallbackNote = droppedSpecialDiets
+        ? `\n\n⚠️ Huom: täysin kriteerit (${filters.specialDiets.join(', ')}) täyttäviä tuotteita ei löytynyt muiden rajoitusten kanssa, joten näytän tuotteita ilman tätä rajausta — tarkista soveltuvuus erikseen.`
+        : '';
 
       // Gemini kirjoittaa lyhyen intron
       let intro = '';
@@ -259,7 +264,7 @@ export default async function handler(req, res) {
       if (conversationId) saveSession(conversationId, sessionData);
 
       const hidden = '\n<hauku_data>' + JSON.stringify(sessionData) + '</hauku_data>';
-      return res.status(200).json({ reply: (intro ? intro + '\n\n' : '') + productList + hidden });
+      return res.status(200).json({ reply: (intro ? intro + '\n\n' : '') + productList + fallbackNote + hidden });
     }
 
     // ── 5. YLEINEN KOIRAKYSYMYS ───────────────────────────────────────────
