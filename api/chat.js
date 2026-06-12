@@ -89,6 +89,7 @@ function buildProductCtx(products) {
     const aines = (p.ainesosat || '').trim();
     return `${i + 1}. ${p.nimi}
    Ainesosat: ${aines ? aines.slice(0, 600) : 'EI SAATAVILLA'}
+   Ravintoaineet: ${(p.ravinto || '').trim() ? (p.ravinto || '').slice(0, 300) : 'EI SAATAVILLA'}
    Ei sisällä (vahvistettu): ${vapaa.length ? vapaa.join(', ') : 'EI TIETOA'}
    Rasvataso: ${p.rasva || 'ei tietoa'}
    Erikoisominaisuudet: ${(p.erikois || []).join(', ') || '-'}
@@ -259,6 +260,7 @@ export default async function handler(req, res) {
         erikois: p.erikois?.slice(0, 4),
         vapaa: (p.vapaa || []).slice(0, 25),
         ainesosat: (p.ainesosat || '').slice(0, 400),
+        ravinto: (p.ravinto || '').slice(0, 300),
         linkki: p.linkki,
       }));
       if (conversationId) saveSession(conversationId, sessionData);
