@@ -56,27 +56,22 @@ async function callGemini(system, msgs, apiKey, maxTokens = 1500) {
 // ── Onko jatkokysymys? ────────────────────────────────────────────────────
 // Vain selkeät viittaukset aiempiin tuotteisiin — ei tavalliset suomen sanat
 function detectFollowUp(msg, sessionProducts) {
+  // Ei aiempaa tuotelistaa -> ei voi olla jatkokysymys, tehdään uusi haku
   if (!sessionProducts?.length) return false;
   const t = norm(msg);
 
-  // Kyseenalaistaa tai kysyy edellisestä vastauksesta — TARKISTA ENSIN
-  // (ennen hasNewContext, koska "oletko varma ei sisällä kanaa" sisältää "kana")
-  const isChallenge = /^miksi|^miks|eihän|eikö|oletko varma|ootko varma|ne on väärä|nuo ei|mitä tarkoitat|mita tarkoitat|mitä se|mita se|selitä|selita|onko varma|tosiaan/.test(t);
-  if (isChallenge) return true;
+  // Eksplisiittinen uusi hakupyyntö -> ei jatkokysymys
+  const isNewSearch = /etsi|etsin|suosittele|löytyykö|loytyykö|löytyisikö|loytyisiko|haen|sopivaa ruokaa|mita ruokaa|onko teilla/.test(t);
+  if (isNewSearch) return false;
 
-  // Uuden haun signaalit ohittavat follow-up tunnistuksen
-  if (/etsi|etsin|suosittele|löytyykö|loytyykö|haen|sopivaa ruokaa|mita ruokaa/.test(t)) return false;
+  // Uusi tieto koirasta (rotu/ikä/kauppa/uusi allergiailmoitus) -> uusi haku
+  const hasNewContext = /vuotias|\bkk\b|\bpentu\b|seniori|peten|haukkula|zooplus|allergi/.test(t);
+  if (hasNewContext) return false;
 
-  // Uutta tietoa koirasta = uusi haku
-  if (/kk ikain|vuotias|\bpentu\b|seniori|peten|haukkula|zooplus|allergi/.test(t)) return false;
-
-  // Selkeät viittaukset aiempaan listaan
-  const hasRef =
-    /\beka\b|\btoka\b|\bkolmas\b|\bensimmäinen\b|\btoinen\b|\bviimeinen\b/.test(t) ||
-    /\b1\.\b|\b2\.\b|\b3\.\b/.test(msg) ||
-    (/paljonko|sisältääkö|sopiiko|mikä ero|miten ero/.test(t) && t.split(' ').length <= 8);
-
-  return hasRef;
+  // OLETUS: kun sessiossa on tuotteita ja viesti ei sisällä yllä olevia signaaleja,
+  // käsitellään jatkokysymyksenä (esim. "paljonko rasvaa", "oletko varma",
+  // "kerro lisää", "sisältääkö X", "entä Y" — riippumatta lauseen pituudesta)
+  return true;
 }
 
 // ── Etsi aiemmat tuotteet historiasta ────────────────────────────────────
