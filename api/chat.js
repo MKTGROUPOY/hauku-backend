@@ -220,14 +220,22 @@ export default async function handler(req, res) {
     }
 
     // ── 4. SUODATUS JA TUOTEHAKU ─────────────────────────────────────────
-    // Yhdistä pre-set (ohjattu flow) + extractFilters (käyttäjäteksti)
+    // Yhdistä pudotusvalikot (preFilters) + extractFilters (vapaa teksti).
+    // Pudotusvalikko VOITTAA jos käyttäjä valitsi JOTAIN MUUTA kuin oletuksen
+    // ("Kaikille ikäluokille" / "Kaikille kokoluokille") — silloin se on
+    // eksplisiittinen valinta. Jos pudotusvalikko on oletuksessa, vapaa teksti
+    // saa täydentää (esim. "3kk pentu" mainittu vain tekstikentässä).
     const extracted = extractFilters(messages);
     const pre = preFilters || {};
+
+    const ageIsDefault  = !pre.age  || pre.age  === 'Kaikille ikäluokille';
+    const sizeIsDefault = !pre.size || pre.size === 'Kaikille kokoluokille';
+
     const filters = {
       ...extracted,
-      age:   pre.age   || extracted.age,
+      age:   ageIsDefault  ? (extracted.age  || pre.age  || null) : pre.age,
+      size:  sizeIsDefault ? (extracted.size || pre.size || null) : pre.size,
       store: pre.store || extracted.store,
-      size:  pre.size  || extracted.size,
       excl:  (pre.excl?.length ? pre.excl : null) || extracted.excl,
       brand: null,
     };
