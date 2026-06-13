@@ -136,9 +136,23 @@ export default async function handler(req, res) {
     const latestNorm = norm(latestMsg);
 
     // ── 1. TURVALLISUUSTARKISTUKSET ──────────────────────────────────────
-    if (/munuaissairaus|maksasairaus|haimatulehdus|pankreatiitti|diabetes|sydänsairaus|epilepsia|syöpä|kasvain/.test(latestNorm)) {
+    // VAKAVAT SAIRAUDET: elin + sairaustermi -YHDISTELMÄ (ei tarkkoja yhdyssanoja,
+    // koska "munuaistulehdus" != "munuaissairaus" eikä vanha lista kattanut sitä).
+    // Tarkistetaan KAIKKI käyttäjän viestit (ei vain viimeisin) ja KERRAN mainittu
+    // sairaus pysyy voimassa koko keskustelun ajan — botti ei saa "unohtaa" sitä
+    // ja alkaa suositella ruokaa myöhemmissä viesteissä.
+    const ORGAN_RX = /munuais|maksa|haima|sydän|virtsa|kilpirauhas|eturauhas|\bperna/;
+    const DISEASE_RX = /tulehdus|sairaus|vajaatoiminta|\btauti|kasvain|ongelm|kivet|\bkivi|vika|krooninen|akuutti|koholla|kohon|heikentynyt|toimintahäiriö|diagnos|todettu|todennut/;
+    const STANDALONE_RX = /diabetes|epilepsia|syöpä|kasvain|pankreatiitti|anemia|autoimmuuni|kardiomyopatia|\bdcm\b/;
+
+    const userMsgsNorm = messages.filter(m => m.role === 'user').map(m => norm(m.content || ''));
+    const medBlock = userMsgsNorm.some(m =>
+      (ORGAN_RX.test(m) && DISEASE_RX.test(m)) || STANDALONE_RX.test(m)
+    );
+
+    if (medBlock) {
       return res.status(200).json({
-        reply: 'Vakavassa sairaudessa ruokavaliomuutos tehdään aina eläinlääkärin ohjauksessa. En voi antaa ruokasuosituksia ilman eläinlääkärin arviota.'
+        reply: '🏥 Tämä kuulostaa lääketieteelliseltä tilalta, joka vaatii eläinlääkärin arvion. En voi suositella ruokia tässä tilanteessa — väärä ruokavalio voi olla suoraan haitallinen tämän tyyppisissä sairauksissa.\n\nOta yhteyttä eläinlääkäriin, joka voi tarvittaessa määrätä erikoisruokavalion koirasi tilanteeseen sopivaksi.'
       });
     }
     if (/suklaa|ksylitoli|rusinat|viinirypäleet|sipuli söi|valkosipuli söi/.test(latestNorm)) {
