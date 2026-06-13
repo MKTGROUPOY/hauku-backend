@@ -61,7 +61,11 @@ function detectFollowUp(msg, sessionProducts) {
   const t = norm(msg);
 
   // Eksplisiittinen uusi hakupyyntö -> ei jatkokysymys
-  const isNewSearch = /etsi|etsin|suosittele|löytyykö|loytyykö|löytyisikö|loytyisiko|haen|sopivaa ruokaa|mita ruokaa|onko teilla/.test(t);
+  // "Ehdota/näytä muita" tms = käyttäjä haluaa ERI tuotteita samoilla kriteereillä.
+  // Tämä laukaisee UUDEN haun (uusi jitter -> eri satunnaisvalinta samasta poolista)
+  // sen sijaan että jäädään selittämään 5 cachetun tuotteen pohjalta.
+  const wantsOthers = /ehdota muita|näytä muita|nayta muita|anna muita|hae muita|toisia vaihtoehto|muita vaihtoehto|eri vaihtoehto|jotain muuta|muut vaihtoehdot|lisää vaihtoehtoja|lisaa vaihtoehtoja|muita tuotteita|toisia tuotteita|muita ehdotuksia/;
+  const isNewSearch = /etsi|etsin|suosittele|löytyykö|loytyykö|löytyisikö|loytyisiko|haen|sopivaa ruokaa|mita ruokaa|onko teilla/.test(t) || wantsOthers.test(t);
   if (isNewSearch) return false;
 
   // Uusi tieto koirasta (rotu/ikä/kauppa/uusi allergiailmoitus) -> uusi haku
@@ -185,18 +189,23 @@ export default async function handler(req, res) {
       ).join('\n\n');
 
       const followUpPrompt = SYSTEM_PROMPT +
-        '\n\n[JATKOKYSYMYS — vastaa käyttäjän kysymykseen alla olevan datan perusteella. ÄLÄ generoi uutta tuotelistaa.]' +
+        '\n\n[JATKOKYSYMYS — vastaa käyttäjän kysymykseen alla olevan datan perusteella.]' +
         '\n\nAiemmin löydetyt tuotteet (TÄYDELLISET TIEDOT):\n' + (ctx || '(ei aiempaa listaa)') +
         '\n\nHUOM 1: "Tämä tuote EI sisällä" -lista on KÄÄNTEINEN — jos kysytty raaka-aine ON tässä listassa, tuote EI sisällä sitä (vastaa "Ei, ei sisällä X:ää").' +
         '\nHUOM 2: Jos kysytty ainesosa (esim. tarkka mauste kuten oregano) EI ole listassa eikä muuallakaan annetussa datassa, sano rehellisesti että tätä ei ole eritelty tietokannassa ja kehota tarkistamaan pakkauksesta. ÄLÄ arvaa.' +
         '\nHUOM 3: Tuotteen NIMI voi paljastaa pääraaka-aineen (esim. "...Lohi" = lohi/kala on pääproteiini) — voit käyttää tätä vastatessasi.' +
-        '\nHUOM 4: "Viljaton" on ERI ASIA kuin yksittäinen vilja "ei sisällä" -listassa. ÄLÄ päättele "viljaton" sen perusteella että esim. Riisi on listassa — tarkista "Viljaton" AINOASTAAN Erikoisominaisuudet-kentästä.';
+        '\nHUOM 4: "Viljaton" on ERI ASIA kuin yksittäinen vilja "ei sisällä" -listassa. ÄLÄ päättele "viljaton" sen perusteella että esim. Riisi on listassa — tarkista "Viljaton" AINOASTAAN Erikoisominaisuudet-kentästä.' +
+        '\n\nKRIITTINEN MUOTOILUOHJE — TÄRKEÄ:' +
+        '\n- Vastaa LYHYESTI, 1-4 lauseella PROOSANA. ÄLÄ toista tuotekortteja (ei "Rasvataso:", "Sopii:", "🛒 Osta" -rivejä) — ne näkyvät käyttäjälle JO edellisessä viestissä.' +
+        '\n- ÄLÄ kirjoita ostolinkkejä uudelleen tässä vastauksessa.' +
+        '\n- Jos käyttäjä sanoo aiemman valinnan olleen väärä (esim. tuote sisältää allergeenin, väärä koko/ikäluokka, "light"-ruoka vaikka ei pyydetty) — MYÖNNÄ virhe lyhyesti ja kehota painamaan "🔍 Etsi sopivat ruoat" -painiketta uudelleen jos haluaa uuden hakukierroksen (botti arpoo uudet vaihtoehdot samoilla kriteereillä).' +
+        '\n- Jos käyttäjä pyytää "muita/toisia/eri vaihtoehtoja" — kerro lyhyesti että voit hakea uudet vaihtoehdot ja kehota painamaan hakupainiketta uudelleen, ÄLÄ keksi yksittäisiä tuotteita itse tähän vastaukseen.';
 
       const reply = await callGemini(
         followUpPrompt,
         messages.filter((m, i) => !(i === 0 && m.role === 'assistant')).slice(-8)
           .map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: (m.content || '').replace(/<hauku_data>[\s\S]*?<\/hauku_data>/g, '') }] })),
-        apiKey, 600
+        apiKey, 350
       );
       return res.status(200).json({ reply: reply || 'Yritä uudelleen.' });
     }
