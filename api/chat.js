@@ -190,7 +190,18 @@ export default async function handler(req, res) {
       isDiagnosedDisease(m)
     );
 
-    if (medBlock) {
+    // Onko sairausmaininta VAIN aiemmissa viesteissä (ei tässä uusimmassa)?
+    // Jos niin, JA sessiossa on jo tuotteita, kyseessä on jatkokysymys jo
+    // käsiteltyyn sairaustapaukseen (esim. "paljonko rasvaa tuotteessa X?").
+    // Tällöin EI toisteta sairauslistaa — annetaan jatkokysymyksen edetä normaalisti.
+    const latestIsMed =
+      (ORGAN_RX.test(latestNorm) && SERIOUS_DISEASE_RX.test(latestNorm)) ||
+      STANDALONE_RX.test(latestNorm) ||
+      isDiagnosedDisease(latestNorm);
+    const sessionHasProducts = (loadSession(conversationId) || []).length > 0;
+    const isMedFollowUp = medBlock && !latestIsMed && sessionHasProducts;
+
+    if (medBlock && !isMedFollowUp) {
       // Onko sairaudelle olemassa OTC-erikoisruokavaliokategoria valikoimassamme?
       // Nämä vastaavat tietokannan erikoisominaisuus-arvoja. Jos vaiva osuu johonkin
       // näistä, NÄYTÄ ne tuotteet — AINA eläinlääkärimuistutuksen kanssa. Jos ei osu
