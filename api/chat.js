@@ -259,12 +259,22 @@ export default async function handler(req, res) {
     const isFollowUp = detectFollowUp(latestMsg, sessionProducts) || !!mentionedProduct;
 
     if (isFollowUp) {
+      // Jos viesti mainitsi tuotteen nimeltä jota EI ole vielä sessiossa, lisää se.
+      // Tämä mahdollistaa että "Sisältääkö X ankkaa?" -> "Kuinka paljon?" -ketju
+      // toimii: ensimmäinen kysymys tallentaa tuotteen sessioon, jolloin jatkokysymys
+      // löytää sen (eikä putoa uuteen hakuun tyhjän session takia).
+      let activeProducts = sessionProducts.slice();
+      if (mentionedProduct && !activeProducts.some(p => p.nimi === mentionedProduct.nimi)) {
+        activeProducts = [mentionedProduct, ...activeProducts];
+      }
+      if (activeProducts.length) saveSession(conversationId, activeProducts.slice(0, 8));
+
       // TÄYDET tiedot JOKAISESTA session-tuotteesta JOKA KERTA — myös "ei sisällä" -lista.
       // Tämä on PAKOLLISTA: keskusteluhistoria rajataan (slice -8), joten aiemman
       // viestin sisältämä "ei sisällä" -lista voi pudota pois kontekstista.
       // Jos tätä ei toisteta jokaisessa jatkokysymyksessä, botti vastaa "ei tietoa"
       // vaikka tieto olisi olemassa — eli näyttää epäjohdonmukaiselta/hallusinoivalta.
-      const ctx = sessionProducts.map((p, i) =>
+      const ctx = activeProducts.map((p, i) =>
         `${i + 1}. ${p.nimi}\n   Rasvataso: ${p.rasvaTarkka || p.rasva || '-'}\n   Ikä: ${(p.ika||[]).join(', ') || '-'}\n   Koko: ${(p.koko||[]).join(', ') || '-'}\n   Erikoisominaisuudet: ${(p.erikois || []).join(', ') || '-'}\n   Pääproteiinit: ${(p.proteiinit||[]).join(', ') || '-'}\n   Ainesosat: ${p.ainesosat || '(ei eritelty tietokannassa)'}\n   Ravintoarvot: ${p.ravintoaineet || '(ei eritelty tietokannassa)'}\n   Tämä tuote EI sisällä (allergeenit): ${(p.vapaa||[]).join(', ') || '(ei tietoa)'}\n   Ostolinkki: ${p.linkki || '-'}`
       ).join('\n\n');
 
@@ -308,6 +318,42 @@ export default async function handler(req, res) {
         apiKey, 400
       );
       return res.status(200).json({ reply: reply || 'Yritä uudelleen.' });
+    }
+
+    // ── 3b. AINESOSAHAKU ("onko ruokia jotka sisältävät X") ──────────────
+    // Kun käyttäjä kysyy tiettyä ainesosaa SISÄLTÄVIÄ ruokia (ei allergiaa eli
+    // poissulkua, vaan nimenomaan "sisältää"), haetaan suoraan ainesosakentästä.
+    // Tämä estää hallusinaation: ennen Gemini "keksi" tuotteen joka ei edes ollut
+    // valikoimassa. Nyt haetaan oikeasti datasta.
+    const wantsIngredient = /sisält(ää|yy|ävi)|joissa on|jossa on|löytyykö.*sisält|onko.*joissa|jotka sisält/.test(latestNorm);
+    if (wantsIngredient && !sessionHasProducts) {
+      // Poimi mahdollinen ainesosa. HUOM: JS:n \w EI matchaa ä/ö, joten käytetään
+      // eksplisiittistä suomalaista merkkiluokkaa [a-zäöå]+.
+      const W = '[a-zäöå]+';
+      const m = latestNorm.match(new RegExp(`sisält${W}?\\s+(${W})|joissa on\\s+(${W})|jossa on\\s+(${W})`));
+      let term = m ? (m[1] || m[2] || m[3] || '').trim() : '';
+      // Karsi yleiset täytesanat
+      if (term && term.length >= 3 && !/ruoki|ruoka|tuott|niit|sit|tät/.test(term)) {
+        // Suomen taivutus: pudota loppu-vokaali/pääte ("silliä"->"silli", "lohta"->"loh")
+        const stem = term.replace(/(aa|ää|ta|tä|lle|lla|llä|ssa|ssä|a|ä|n)$/u, '');
+        const matches = allProducts.filter(p =>
+          p.ainesosat && (p.ainesosat.toLowerCase().includes(term) ||
+                          (stem.length >= 4 && p.ainesosat.toLowerCase().includes(stem)))
+        );
+        if (matches.length > 0) {
+          const list = buildDirectProductResponse(matches, {});
+          const sessionData = matches.slice(0, 8).map(p => ({
+            nimi: p.nimi, rasva: p.rasva, erikois: p.erikois?.slice(0, 4), linkki: p.linkki,
+          }));
+          const hidden = '\n<hauku_data>' + JSON.stringify(sessionData) + '</hauku_data>';
+          saveSession(conversationId, matches.slice(0, 8));
+          return res.status(200).json({ reply: list + hidden });
+        } else {
+          return res.status(200).json({
+            reply: `En löytänyt valikoimastamme tuotteita joiden ainesosaluettelossa mainitaan "${term}". Voit kokeilla eri hakusanaa tai kertoa koirasi tarpeista, niin etsin sopivia ruokia.`,
+          });
+        }
+      }
     }
 
     // ── 4. SUODATUS JA TUOTEHAKU ─────────────────────────────────────────
