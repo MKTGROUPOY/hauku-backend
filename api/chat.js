@@ -8,7 +8,7 @@ import { SYSTEM_PROMPT } from '../lib/system-prompt.js';
 const sessions = new Map();
 function saveSession(id, products) {
   if (!id || !products?.length) return;
-  sessions.set(id, { data: products.slice(0, 5), ts: Date.now() });
+  sessions.set(id, { data: products.slice(0, 30), ts: Date.now() });
 }
 function loadSession(id) {
   if (!id) return null;
@@ -64,7 +64,7 @@ function detectFollowUp(msg, sessionProducts) {
   // "Ehdota/näytä muita" tms = käyttäjä haluaa ERI tuotteita samoilla kriteereillä.
   // Tämä laukaisee UUDEN haun (uusi jitter -> eri satunnaisvalinta samasta poolista)
   // sen sijaan että jäädään selittämään 5 cachetun tuotteen pohjalta.
-  const wantsOthers = /ehdota muita|näytä muita|nayta muita|anna muita|hae muita|toisia vaihtoehto|muita vaihtoehto|eri vaihtoehto|jotain muuta|muut vaihtoehdot|lisää vaihtoehtoja|lisaa vaihtoehtoja|muita tuotteita|toisia tuotteita|muita ehdotuksia|uusia vaihtoehto|uudet vaihtoehdot|uusia ehdotuksia|uusia tuotteita|täysin uudet|taysin uudet|kokonaan uudet|toisenlaisia|eri tuotteita|eri merke|toiselta merk|toiselta valmistaj|vaihda tuotteet|näytä toiset|nayta toiset|anna uudet|anna uusia|anna lisää|anna lisaa/;
+  const wantsOthers = /ehdota muita|näytä muita|nayta muita|anna muita|hae muita|toisia vaihtoehto|muita vaihtoehto|eri vaihtoehto|jotain muuta|uusia vaihtoehto|uudet vaihtoehdot|uusia ehdotuksia|uusia tuotteita|täysin uudet|taysin uudet|kokonaan uudet|toisenlaisia|eri tuotteita|eri merke|toiselta merk|toiselta valmistaj|vaihda tuotteet|anna uudet|anna uusia/;
   const isNewSearch = /etsi|etsin|suosittele|löytyykö|loytyykö|löytyisikö|loytyisiko|haen|sopivaa ruokaa|mita ruokaa|onko teilla/.test(t) || wantsOthers.test(t);
   if (isNewSearch) return false;
 
@@ -75,7 +75,9 @@ function detectFollowUp(msg, sessionProducts) {
   // jossa Gemini vain "selittää" vanhaa listaa ja voi hallusinoida).
   const hasNewContext =
     /vuotias|\bkk\b|\bpentu\b|seniori|peten|haukkula|zooplus|allergi/.test(t) ||
-    /ei sisäll|ei sisall|ilman|ei saa olla|ei varmasti|ei kana|ei lohi|ei kala|ei nauta|ei lamma|ei possu|ei vilja|ei herne|ei soija|ei peruna|ei riisi|ei ankka|ei kalkkuna|ei siipikarj|eikä|älä suosittele|ala suosittele/.test(t);
+    /ei sisäll|ei sisall|ilman|ei saa olla|ei varmasti|ei kana|ei lohi|ei kala|ei nauta|ei lamma|ei possu|ei vilja|ei herne|ei soija|ei peruna|ei riisi|ei ankka|ei kalkkuna|ei siipikarj|eikä|älä suosittele|ala suosittele/.test(t) ||
+    // Tarkennukset jotka tarkoittavat UUTTA, tiukempaa hakua (ei vanhan selittämistä):
+    /suunniteltu|suunnattu|tarkoitettu (nimenomaan|erityisesti|varsinaisesti)|nimenomaan.{0,20}(pennuille|pennulle|junioreille|senioreille|aikuisille)|varsinaisesti|oikeasti.{0,15}(pentu|penn)|ihan.{0,15}(pentu|penn)|haluan.{0,30}(suunniteltu|pennuille|pennulle|junioreille)|suurille pennuil|pienille pennuil|isoille pennuil/.test(t);
   if (hasNewContext) return false;
 
   // OLETUS: kun sessiossa on tuotteita ja viesti ei sisällä yllä olevia signaaleja,
@@ -171,6 +173,34 @@ export default async function handler(req, res) {
       });
     }
 
+    // ── 0b. META / IDENTITEETTI / BOTTIA KOSKEVAT KYSYMYKSET ─────────────
+    // "Kuka sinut teki", "mitä tekoälyä käytät", "miten toimit" jne. EIVÄT ole
+    // tuotehakuja. Vastataan kiinteästi (ei haeta tuotteita, ei vuodeta teknisiä
+    // yksityiskohtia). Tunnistetaan vain jos EI ole hakukriteeriä mukana.
+    const isMetaIdentity = /miten.{0,15}(rakennettu|toimit|tehty)|kuka.{0,15}(rakentanut|tehnyt|loi|kehittän)|mitä tekoäly|mika tekoaly|oletko.{0,10}(botti|tekoäly|robotti|ihminen|ai\b)|mikä.{0,10}(malli|tekoäly).{0,10}(olet|käytät)|gpt|gemini|chatgpt|kielimalli|miten sinut|mistä.{0,10}(tiedät|saat tiedot)|miten.{0,10}suosittelet/.test(latestNorm);
+    if (isMetaIdentity && !hasAnySearchSignal) {
+      return res.status(200).json({
+        reply: 'Olen Hauku, RuokaKoiralle.fi:n koiranruoka-assistentti. 🐾 Autan löytämään koirallesi sopivan ruoan valikoimastamme sen iän, koon, mahdollisten allergioiden ja erityistarpeiden perusteella. Kerro koirastasi, niin etsin sopivia vaihtoehtoja!'
+      });
+    }
+
+    // ── 0c. "PARAS / ENITEN" -TYYPPISET ARVOTTAVAT KYSYMYKSET ────────────
+    // "Mikä on paras penturuoka", "mikä sisältää eniten lihaa" — emme voi
+    // objektiivisesti väittää mitään "parhaaksi" emmekä vertailla määriä
+    // luotettavasti. Ohjataan tarkentamaan tarpeet konkreettisesti.
+    const isSuperlative = /\b(paras|parhain|paras mahdollinen|laadukkain|terveellisin|suositelluin|ykkös)\b/.test(latestNorm) ||
+                          /eniten|vähiten|korkein|matalin/.test(latestNorm);
+    // "paras X" ilman MUITA rajauksia (allergia, tarkka ikä vuosina, erikoisruokavalio)
+    // -> ohjaa tarkentamaan. Pelkkä ikäluokka ("paras penturuoka") EI riitä, koska
+    // emme voi nimetä yhtä "parasta" — mutta jos mukana on konkreettisia rajauksia,
+    // annetaan haun edetä.
+    const hasConcreteCriteria = /allergi|vuotias|\bkk\b|viljaton|vähärasva|nivel-ongelm|iho-ongelm|suolisto-ongelm|herkk|aktiivi|painonhall|\bkana\b|\bnauta\b|lammas|kala|lohi|possu/.test(latestNorm);
+    if (isSuperlative && !hasConcreteCriteria) {
+      return res.status(200).json({
+        reply: 'Hyvä kysymys! "Parasta" ruokaa ei ole yksiselitteisesti — sopivin riippuu koirasi iästä, koosta, mahdollisista allergioista ja erityistarpeista. Kerro näistä, niin suosittelen juuri sinun koirallesi sopivia laadukkaita vaihtoehtoja. Esimerkiksi: "iso 3kk pentu, ei allergioita" tai "aktiivinen aikuinen, viljaton".'
+      });
+    }
+
     // ── 1. TURVALLISUUSTARKISTUKSET ──────────────────────────────────────
     // VAKAVAT SAIRAUDET: elin + sairaustermi -YHDISTELMÄ (ei tarkkoja yhdyssanoja,
     // koska "munuaistulehdus" != "munuaissairaus" eikä vanha lista kattanut sitä).
@@ -255,7 +285,7 @@ export default async function handler(req, res) {
             nimi: p.nimi, rasva: p.rasva, erikois: p.erikois?.slice(0, 4), linkki: p.linkki,
           }));
           const hidden = '\n<hauku_data>' + JSON.stringify(sessionData) + '</hauku_data>';
-          saveSession(conversationId, dietProducts.slice(0, 8));
+          saveSession(conversationId, dietProducts.slice(0, 30));
           return res.status(200).json({ reply: intro + list + hidden });
         }
       }
@@ -282,6 +312,32 @@ export default async function handler(req, res) {
       }
     }
 
+    // ── "NÄYTÄ LOPUT" — paljasta session piilossa olevat tuotteet ─────────
+    // "anna loput", "kerro ne 3 myös", "näytä loput", "loput vaihtoehdot" tarkoittaa
+    // EDELLISEN haun piilotettuja tuotteita (+N muuta) — EI uutta hakua. Tämä estää
+    // hallusinaation (ennen tämä laukaisi uuden haun jossa Gemini keksi tuotteita).
+    const wantsRest = /\b(loput|loppu(t|jen)?|ne kolme|ne \d|kaikki vaihtoehdot|näytä kaikki|nayta kaikki|kerro ne|anna ne|näytä loput|nayta loput|muut \d|loput vaihtoehdo|näytä muutkin)\b/.test(latestNorm);
+    if (wantsRest && sessionProducts.length > 5) {
+      const rest = sessionProducts.slice(5); // 6. eteenpäin
+      if (rest.length > 0) {
+        // Muodosta lista suoraan session-tuotteista (ne ovat jo oikeita, suodatettuja)
+        const lines = rest.slice(0, 10).map(p => {
+          let s = `**${p.nimi}**\nRasvataso: ${p.rasva || '-'}`;
+          if (p.erikois?.length) s += `\nSopii: ${p.erikois.slice(0, 4).join(', ')}`;
+          if (p.linkki) s += `\n🛒 [Osta](${p.linkki})`;
+          return s;
+        });
+        const intro = rest.length <= 10
+          ? `Tässä loput ${rest.length} vaihtoehtoa:`
+          : `Tässä lisää vaihtoehtoja:`;
+        const visibleData = rest.slice(0, 10);
+        const hidden = '\n<hauku_data>' + JSON.stringify(visibleData) + '</hauku_data>';
+        return res.status(200).json({
+          reply: intro + '\n\n' + lines.join('\n\n') + '\n\n📋 Tarkistathan tuotteen tiedot ennen ostopäätöstä.' + hidden,
+        });
+      }
+    }
+
     const isFollowUp = detectFollowUp(latestMsg, sessionProducts) || !!mentionedProduct;
 
     if (isFollowUp) {
@@ -293,14 +349,14 @@ export default async function handler(req, res) {
       if (mentionedProduct && !activeProducts.some(p => p.nimi === mentionedProduct.nimi)) {
         activeProducts = [mentionedProduct, ...activeProducts];
       }
-      if (activeProducts.length) saveSession(conversationId, activeProducts.slice(0, 8));
+      // Säilytä KOKO sessio (max 30) jotta "näytä loput" toimii myös jatkokysymysten
+      // jälkeen — ei kutisteta 8:aan.
+      if (activeProducts.length) saveSession(conversationId, activeProducts.slice(0, 30));
 
-      // TÄYDET tiedot JOKAISESTA session-tuotteesta JOKA KERTA — myös "ei sisällä" -lista.
-      // Tämä on PAKOLLISTA: keskusteluhistoria rajataan (slice -8), joten aiemman
-      // viestin sisältämä "ei sisällä" -lista voi pudota pois kontekstista.
-      // Jos tätä ei toisteta jokaisessa jatkokysymyksessä, botti vastaa "ei tietoa"
-      // vaikka tieto olisi olemassa — eli näyttää epäjohdonmukaiselta/hallusinoivalta.
-      const ctx = activeProducts.map((p, i) =>
+      // TÄYDET tiedot session-tuotteista — mutta vain ENSIMMÄISET 8 promptiin, jotta
+      // konteksti ei kasva liian suureksi. "ei sisällä" -lista mukana joka kerta.
+      const ctxProducts = activeProducts.slice(0, 8);
+      const ctx = ctxProducts.map((p, i) =>
         `${i + 1}. ${p.nimi}\n   Rasvataso: ${p.rasvaTarkka || p.rasva || '-'}\n   Ikä: ${(p.ika||[]).join(', ') || '-'}\n   Koko: ${(p.koko||[]).join(', ') || '-'}\n   Erikoisominaisuudet: ${(p.erikois || []).join(', ') || '-'}\n   Pääproteiinit: ${(p.proteiinit||[]).join(', ') || '-'}\n   Ainesosat: ${p.ainesosat || '(ei eritelty tietokannassa)'}\n   Ravintoarvot: ${p.ravintoaineet || '(ei eritelty tietokannassa)'}\n   Tämä tuote EI sisällä (allergeenit): ${(p.vapaa||[]).join(', ') || '(ei tietoa)'}\n   Ostolinkki: ${p.linkki || '-'}`
       ).join('\n\n');
 
@@ -317,7 +373,7 @@ export default async function handler(req, res) {
         '\n- Vastaa LYHYESTI, 1-4 lauseella PROOSANA. ÄLÄ toista tuotekortteja (ei "Rasvataso:", "Sopii:", "🛒 Osta" -rivejä) — ne näkyvät käyttäjälle JO edellisessä viestissä.' +
         '\n- ÄLÄ kirjoita ostolinkkejä uudelleen tässä vastauksessa.' +
         '\n- Jos käyttäjä sanoo aiemman valinnan olleen väärä (esim. tuote sisältää allergeenin, väärä koko/ikäluokka, "light"-ruoka vaikka ei pyydetty) — MYÖNNÄ virhe lyhyesti ja kehota painamaan "🔍 Etsi sopivat ruoat" -painiketta uudelleen jos haluaa uuden hakukierroksen (botti arpoo uudet vaihtoehdot samoilla kriteereillä).' +
-        '\n- Jos käyttäjä pyytää "muita/toisia/eri vaihtoehtoja" — kerro lyhyesti että voit hakea uudet vaihtoehdot ja kehota painamaan hakupainiketta uudelleen, ÄLÄ keksi yksittäisiä tuotteita itse tähän vastaukseen.';
+        '\n- Jos käyttäjä pyytää "muita/toisia/eri vaihtoehtoja" tai tarkentaa hakuaan (esim. "haluan suurille pennuille suunnitellun"), ÄLÄ keksi yksittäisiä tuotteita itse äläkä viittaa mihinkään "hakupainikkeeseen" (sellaista EI ole). Sano lyhyesti että haet uudet vaihtoehdot — järjestelmä tekee uuden haun automaattisesti.';
 
       const reply = await callGemini(
         followUpPrompt,
@@ -372,7 +428,7 @@ export default async function handler(req, res) {
             nimi: p.nimi, rasva: p.rasva, erikois: p.erikois?.slice(0, 4), linkki: p.linkki,
           }));
           const hidden = '\n<hauku_data>' + JSON.stringify(sessionData) + '</hauku_data>';
-          saveSession(conversationId, matches.slice(0, 8));
+          saveSession(conversationId, matches.slice(0, 30));
           return res.status(200).json({ reply: list + hidden });
         } else {
           return res.status(200).json({
@@ -391,6 +447,15 @@ export default async function handler(req, res) {
     const extracted = extractFilters(messages);
     const pre = preFilters || {};
 
+    // OIRE -> ERIKOISOMINAISUUS -kartoitus: jos käyttäjä kuvaa oiretta mutta ei anna
+    // muuta hakukriteeriä, ohjataan haku relevantteihin erikoisruokiin (esim. kutina
+    // -> iho-ongelmat, ripuli/ei syö -> suolisto-ongelmat/herkkä). Näin oirekysymys
+    // löytää oikeasti sopivia tuotteita eikä näytä satunnaista koko valikoimaa.
+    const symptomDiets = [];
+    if (/kutis|kutin|raapi|kläm|iho|hilse|karva läht|karvanlähtö|punoit|näppyl/.test(latestNorm)) symptomDiets.push('Iho-ongelmat');
+    if (/ripuli|löysä ulost|loysa ulost|oksent|näräst|kakkaa paljon|paljon kakka|ilmavaiv|röyht|vatsa|maha|suolist/.test(latestNorm)) symptomDiets.push('Suolisto-ongelmat');
+    if (/ei syö|ei suostu syö|kieltäyty|nirso|maistuv/.test(latestNorm)) symptomDiets.push('Herkkä');
+
     const ageIsDefault  = !pre.age  || pre.age  === 'Kaikille ikäluokille';
     const sizeIsDefault = !pre.size || pre.size === 'Kaikille kokoluokille';
 
@@ -400,6 +465,7 @@ export default async function handler(req, res) {
       size:  sizeIsDefault ? (extracted.size || pre.size || null) : pre.size,
       store: pre.store || extracted.store,
       excl:  (pre.excl?.length ? pre.excl : null) || extracted.excl,
+      specialDiets: [...new Set([...(extracted.specialDiets || []), ...symptomDiets])],
       brand: null,
     };
 
@@ -429,6 +495,15 @@ export default async function handler(req, res) {
         ? `\n\n⚠️ Huom: täysin kriteerit (${filters.specialDiets.join(', ')}) täyttäviä tuotteita ei löytynyt muiden rajoitusten kanssa, joten näytän tuotteita ilman tätä rajausta — tarkista soveltuvuus erikseen.`
         : '';
 
+      // Oire-varauma: jos käyttäjä kuvaa OIRETTA (kutina, ripuli, oksentelu, ei syö,
+      // laihtuminen), muistutetaan että oire ei välttämättä johdu ruoasta ja että
+      // pitkittyneissä oireissa kannattaa konsultoida eläinlääkäriä. Ruoka voi silti
+      // auttaa, joten näytetään vaihtoehtoja.
+      const SYMPTOM_RX = /kutis|kutin|kläm|raapi|ripuli|löysä ulost|loysa ulost|oksent|näräst|naras|ei syö|ei suostu syö|kieltäyty|laiht|laihtu|nuhruinen turkki|hilse|karva läht|karvanlähtö|kakkaa paljon|paljon kakka|ilmavaiv|röyht/;
+      const symptomNote = SYMPTOM_RX.test(latestNorm)
+        ? '\n\n💡 Huom: kuvailemasi oire voi johtua monesta syystä eikä välttämättä ruoasta. Jos oire on pitkittynyt tai voimakas, kannattaa konsultoida eläinlääkäriä. Ruokavalio voi silti auttaa — alla vaihtoehtoja, jotka usein sopivat herkille tai oireileville koirille:'
+        : '';
+
       // Gemini kirjoittaa lyhyen intron
       let intro = '';
       try {
@@ -442,14 +517,19 @@ export default async function handler(req, res) {
         if (parsed.intro?.length > 5) intro = parsed.intro;
       } catch {}
 
-      // Tallenna sessio
-      const sessionData = matched.slice(0, 5).map(p => ({
+      // Tallenna sessio: KOKO suodatettu lista (max 30) jotta "näytä loput" voi
+      // näyttää oikeat piilossa olevat tuotteet ilman uutta hakua/hallusinaatiota.
+      const sessionData = matched.slice(0, 30).map(p => ({
         nimi: p.nimi, rasva: p.rasva, erikois: p.erikois?.slice(0, 4), linkki: p.linkki,
       }));
       if (conversationId) saveSession(conversationId, sessionData);
 
-      const hidden = '\n<hauku_data>' + JSON.stringify(sessionData) + '</hauku_data>';
-      return res.status(200).json({ reply: (intro ? intro + '\n\n' : '') + productList + fallbackNote + hidden });
+      // Näkyvät tuotteet (hauku_data) = vain ensimmäiset, jotta widget ei näytä kaikkia
+      const visibleData = sessionData.slice(0, 5);
+      const hidden = '\n<hauku_data>' + JSON.stringify(visibleData) + '</hauku_data>';
+      // Oire-varauma korvaa Geminin geneerisen intron (se on informatiivisempi)
+      const leadIn = symptomNote ? symptomNote.trim() : (intro ? intro : '');
+      return res.status(200).json({ reply: (leadIn ? leadIn + '\n\n' : '') + productList + fallbackNote + hidden });
     }
 
     // ── 5. YLEINEN KOIRAKYSYMYS ───────────────────────────────────────────
