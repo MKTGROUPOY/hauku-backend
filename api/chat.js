@@ -154,24 +154,40 @@ export default async function handler(req, res) {
     // Elin/kehonosa-juuret — laajennettu kattamaan suolisto, suoli, vatsa, iho, nivel,
     // korva, silmä, hampaat jne. "suolistotulehdus" EI lauennut aiemmin koska
     // "suolisto" puuttui listalta.
-    const ORGAN_RX = /munuais|maksa|haima|sydän|virtsa|kilpirauhas|eturauhas|\bperna|suolisto|suoli|vatsa|maha|iho|nivel|luusto|korva|silmä|hammas|hampa|keuhko|umpisuoli|peräsuoli|paksusuol/;
+    const ORGAN_RX = /munuais|maksa|haima|sydän|virtsa|kilpirauhas|eturauhas|\bperna|suolisto|suoli|vatsa|maha|iho|nivel|luusto|korva|silmä|hammas|hampa|keuhko|umpisuoli|peräsuoli|paksusuol|sappi|lonkka/;
     // VAKAVA sairaustermi elimen kanssa — EI sisällä pelkkää "ongelm", koska se on
     // erikoisruokavaliotermimme ("iho-ongelmat", "nivel-ongelmat", "suolisto-ongelmat"
     // ovat normaaleja hakukriteereitä, eivät diagnosoituja sairauksia).
     const SERIOUS_DISEASE_RX = /tulehdus|tulehtun|sairaus|vajaatoiminta|\btauti|kasvai|kivet|\bkivi|krooninen|akuutti|koholla|kohon|heikentynyt|toimintahäiriö|infektio|vika\b/;
-    const STANDALONE_RX = /diabet|epilep|syöp|kasvai|pankreatiit|anemia|autoimmuun|kardiomyopat|\bdcm\b|\bibd\b|haavain|colitis|koliitti|gastriitti|enteriitti/;
+    const STANDALONE_RX = /diabet|epilep|syöp|kasvai|pankreatiit|anemia|autoimmuun|kardiomyopat|\bdcm\b|\bibd\b|haavain|colitis|koliitti|gastriitti|enteriitti|cushing|addison|hypotyre|hypertyre|mukoseele/;
 
-    // DIAGNOOSI-SANASTO: jos asiakas sanoo että jokin on "todettu/diagnosoitu/
-    // eläinlääkäri totesi" + MIKÄ TAHANSA sairaustermi, se on lääketieteellinen tila
-    // riippumatta elimestä. Tämä on itsenäinen, toinen laukaisin.
-    const DIAGNOSED_RX = /todett|todennut|diagnos|sairastaa|diagnosoi|eläinlääkäri.{0,40}(totesi|sanoi|määräs|löys|epäilee)|lääkäri.{0,30}(totesi|löys|määräs|sanoi)/;
-    const ANY_DISEASE_WORD = /tulehdus|tulehtun|sairaus|vajaatoiminta|kasvai|syöpä|diabetes|epilepsia|infektio|krooni|kivet|\btauti|haavai|koliitti|gastriitti|paksusuol/;
+    // DIAGNOOSISANASTO laukaisee YKSINÄÄN: "todettiin/diagnosoitiin/eläinlääkäri
+    // totesi" tarkoittaa AINA eläinlääkärin toteamaa sairautta, riippumatta siitä
+    // mikä sairaus on kyseessä (kattaa myös harvinaiset diagnoosit kuten Addison,
+    // Cushing, mukoseele joita ei voi listata etukäteen). AINOA poikkeus: jos
+    // diagnoosi koskee VAIN allergiaa/herkkyyttä, se hoidetaan allergiasuodatuksella
+    // eikä estona.
+    const DIAGNOSED_RX = /\btodett|\btodennut|diagnos|sairastaa|diagnosoi|eläinlääkäri.{0,40}(totesi|sanoi|määräs|löys|epäilee)|lääkäri.{0,30}(totesi|löys|määräs|sanoi)/;
 
     const userMsgsNorm = messages.filter(m => m.role === 'user').map(m => norm(m.content || ''));
+
+    function isDiagnosedDisease(m) {
+      if (!DIAGNOSED_RX.test(m)) return false;
+      // Jos viesti mainitsee VAIN allergian/herkkyyden eikä mitään muuta sairautta,
+      // älä estä — allergia käsitellään suodatuksella (esim. "todettu kana-allergia").
+      const mentionsAllergy = /allergi|herkk|ruoka-aine|atooppi|atopia/.test(m);
+      const mentionsOther =
+        ORGAN_RX.test(m) || SERIOUS_DISEASE_RX.test(m) || STANDALONE_RX.test(m) ||
+        /kysta|fibroosi|stenoosi|dysplasia|insuffisienssi|reflux|refluksi|ummetus|liikatoiminta|sivuään|nivelrikko|niverikko/.test(m);
+      if (mentionsAllergy && !mentionsOther) return false;
+      // "todettiin [mikä tahansa tila]" -> estä
+      return true;
+    }
+
     const medBlock = userMsgsNorm.some(m =>
       (ORGAN_RX.test(m) && SERIOUS_DISEASE_RX.test(m)) ||
       STANDALONE_RX.test(m) ||
-      (DIAGNOSED_RX.test(m) && ANY_DISEASE_WORD.test(m))
+      isDiagnosedDisease(m)
     );
 
     if (medBlock) {
