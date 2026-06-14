@@ -191,6 +191,39 @@ export default async function handler(req, res) {
     );
 
     if (medBlock) {
+      // Onko sairaudelle olemassa OTC-erikoisruokavaliokategoria valikoimassamme?
+      // Nämä vastaavat tietokannan erikoisominaisuus-arvoja. Jos vaiva osuu johonkin
+      // näistä, NÄYTÄ ne tuotteet — AINA eläinlääkärimuistutuksen kanssa. Jos ei osu
+      // (esim. syöpä, epilepsia, sappirakon mukoseele), pelkkä eläinlääkäriohjaus.
+      const allMed = userMsgsNorm.join(' ');
+      const DISEASE_DIET_MAP = [
+        { rx: /munuais/,                          diet: 'Munuaisten vajaatoiminta' },
+        { rx: /maksa/,                            diet: 'Maksan vajaatoiminta' },
+        { rx: /haima|pankrea/,                    diet: 'Haiman vajaatoiminta' },
+        { rx: /virtsa|rakkokiv|struvii|oksalaat/, diet: 'Virtsakivet' },
+        { rx: /diabet/,                           diet: 'Diabetes' },
+      ];
+      const matchedDiet = DISEASE_DIET_MAP.find(d => d.rx.test(allMed));
+
+      if (matchedDiet) {
+        const dietProducts = filterProducts(allProducts, {
+          excl: [], age: null, size: null, store: null, specialDiets: [matchedDiet.diet],
+          allowVetDiet: true,
+        });
+        if (dietProducts.length > 0) {
+          const list = buildDirectProductResponse(dietProducts, {});
+          const intro =
+            `🏥 **Tärkeää:** "${matchedDiet.diet}" on lääketieteellinen tila, ja ruokavaliosta on aina syytä keskustella eläinlääkärin kanssa ennen muutoksia — hän tuntee koirasi tilanteen ja voi tarvittaessa määrätä erityisruokavalion.\n\nValikoimastamme löytyy seuraavat tähän vaivaan suunnitellut ruoat, jotka voit ottaa puheeksi eläinlääkärin kanssa:\n\n`;
+          const sessionData = dietProducts.slice(0, 8).map(p => ({
+            nimi: p.nimi, rasva: p.rasva, erikois: p.erikois?.slice(0, 4), linkki: p.linkki,
+          }));
+          const hidden = '\n<hauku_data>' + JSON.stringify(sessionData) + '</hauku_data>';
+          saveSession(conversationId, dietProducts.slice(0, 8));
+          return res.status(200).json({ reply: intro + list + hidden });
+        }
+      }
+
+      // Ei sopivaa kategoriaa (tai ei tuotteita) -> pelkkä eläinlääkäriohjaus
       return res.status(200).json({
         reply: '🏥 Tämä kuulostaa lääketieteelliseltä tilalta, joka vaatii eläinlääkärin arvion. En voi suositella ruokia tässä tilanteessa — väärä ruokavalio voi olla suoraan haitallinen tämän tyyppisissä sairauksissa.\n\nOta yhteyttä eläinlääkäriin, joka voi tarvittaessa määrätä erikoisruokavalion koirasi tilanteeseen sopivaksi.'
       });
