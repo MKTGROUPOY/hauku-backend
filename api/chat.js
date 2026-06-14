@@ -292,8 +292,18 @@ export default async function handler(req, res) {
         });
         if (dietProducts.length > 0) {
           const list = buildDirectProductResponse(dietProducts, {});
+          // Viittaa elimeen/aihealueeseen yleisesti — EI väitä tiettyä diagnoosia
+          // jota asiakas ei maininnut (esim. asiakas sanoi "haimatulehdus", ei
+          // "haiman vajaatoiminta"). Kategoria on vain sisäinen suodatusperuste.
+          const dietArea = {
+            'Munuaisten vajaatoiminta': 'munuaisten toimintaan',
+            'Maksan vajaatoiminta': 'maksan toimintaan',
+            'Haiman vajaatoiminta': 'haiman toimintaa tukemaan',
+            'Virtsakivet': 'virtsateiden terveyteen',
+            'Diabetes': 'diabeteksen hallintaan',
+          }[matchedDiet.diet] || 'tähän vaivaan';
           const intro =
-            `🏥 **Tärkeää:** "${matchedDiet.diet}" on lääketieteellinen tila, ja ruokavaliosta on aina syytä keskustella eläinlääkärin kanssa ennen muutoksia — hän tuntee koirasi tilanteen ja voi tarvittaessa määrätä erityisruokavalion.\n\nValikoimastamme löytyy seuraavat tähän vaivaan suunnitellut ruoat, jotka voit ottaa puheeksi eläinlääkärin kanssa:\n\n`;
+            `🏥 **Tärkeää:** Kuvailemasi tila on lääketieteellinen, ja ruokavaliosta on aina syytä keskustella eläinlääkärin kanssa ennen muutoksia — hän tuntee koirasi tilanteen ja voi tarvittaessa määrätä erityisruokavalion.\n\nValikoimastamme löytyy seuraavat ${dietArea} suunnitellut ruoat, jotka voit ottaa puheeksi eläinlääkärin kanssa:\n\n`;
           const sessionData = dietProducts.slice(0, 8).map(p => ({
             nimi: p.nimi, rasva: p.rasva, erikois: p.erikois?.slice(0, 4), linkki: p.linkki,
           }));
@@ -378,7 +388,7 @@ export default async function handler(req, res) {
         '\n\nAiemmin löydetyt tuotteet (TÄYDELLISET TIEDOT):\n' + (ctx || '(ei aiempaa listaa)') +
         '\n\nHUOM 1: "Tämä tuote EI sisällä" -lista on KÄÄNTEINEN — jos kysytty raaka-aine ON tässä listassa, tuote EI sisällä sitä (vastaa "Ei, ei sisällä X:ää").' +
         '\nHUOM 2 — AINESOSAT: Yllä on useimmille tuotteille TÄYSI ainesosaluettelo ("Ainesosat:"), ravintoarvot ("Ravintoarvot:") JA pääproteiinit ("Pääproteiinit:"). Kun käyttäjä kysyy sisältääkö tuote jotain (esim. kala, oregano, kurkuma, vilja), LUE KOKO ainesosaluettelo ALUSTA LOPPUUN ja poimi KAIKKI osumat — ei vain ensimmäistä. Esimerkki: jos kysytään "sisältääkö kalaa" ja luettelossa on "kummeliturska", "silli" JA "kalaöljy", luettele KAIKKI kolme ("sisältää kummeliturskaa, silliä ja kalaöljyä"). ÄLÄ pysähdy ensimmäiseen osumaan. Voit myös käyttää Pääproteiinit-kenttää (esim. "Kala" siellä = tuote sisältää kalaa). Jos kysytty asia EI löydy luettelosta → "Ei, ainesosaluettelon mukaan ei sisällä X:ää". Vain jos ainesosat on "(ei eritelty tietokannassa)" → kehota tarkistamaan pakkauksesta. ÄLÄ KOSKAAN arvaa äläkä jätä osumia mainitsematta.' +
-        '\nHUOM 2c — "MITÄ KALAA / MITÄ LIHAA": Kun kysytään mitä kalaa/lihaa tuote sisältää, etsi luettelosta KAIKKI kyseisen kategorian ainesosat nimeltä (kalat: turska, kummeliturska, silli, lohi, makrilli, sardiini, ankerias, kalaöljy; lihat: kana, nauta, lammas, possu, kalkkuna, ankka, riista, peura, hirvi). Luettele ne. ÄLÄ sano "ei tarkempaa tietoa" jos luettelossa on nimettyjä lajeja.' +
+        '\nHUOM 2c — "MITÄ KALAA / MITÄ LIHAA / SISÄLTÄÄKÖ LOHTA": Kun kysytään mitä kalaa/lihaa tuote sisältää TAI sisältääkö se tiettyä lajia, etsi luettelosta KAIKKI kyseisen kategorian ainesosat nimeltä. Kalalajeja voivat olla mm.: turska, kummeliturska, silli, silakka, lohi, makrilli, sardiini, muikku, ahven, särki, lahna, kilohaili, kalaöljy, kalaliemi. Lihoja: kana, nauta, lammas, possu/sika, kalkkuna, ankka, riista, peura, hirvi, kani, hevonen. Luettele tuotteessa OLEVAT lajit nimeltä. Jos käyttäjä kysyy tiettyä lajia (esim. "sisältääkö lohta") jota EI luettelossa ole, vastaa "Ei sisällä lohta" ja KERRO mitä kalaa/lihaa se sen sijaan sisältää (esim. "ei lohta, mutta sisältää silakkaa, muikkua ja ahventa"). ÄLÄ sano "ei tarkempaa tietoa" jos luettelossa on nimettyjä lajeja.' +
         '\nHUOM 2b — RASVA%: Kun kysytään rasvaprosenttia, käytä "Rasvataso:" -kenttää joka sisältää nyt tarkan haarukan (esim. "Korkea (17-20%)"). Voit myös käyttää "Ravintoarvot:" -kenttää josta löytyy raakarasva tarkkana lukuna. Jos näitä ei ole eritelty, kehota tarkistamaan pakkauksesta.' +
         '\nHUOM 3: Tuotteen NIMI voi paljastaa pääraaka-aineen (esim. "...Lohi" = lohi/kala on pääproteiini) — voit käyttää tätä vastatessasi.' +
         '\nHUOM 4: "Viljaton" on ERI ASIA kuin yksittäinen vilja "ei sisällä" -listassa. ÄLÄ päättele "viljaton" sen perusteella että esim. Riisi on listassa — tarkista "Viljaton" AINOASTAAN Erikoisominaisuudet-kentästä.' +
