@@ -145,6 +145,32 @@ export default async function handler(req, res) {
     const latestMsg = messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '';
     const latestNorm = norm(latestMsg);
 
+    // ── 0. PELKKÄ TERVEHDYS / JUTUSTELU ──────────────────────────────────
+    // Jos käyttäjä kirjoittaa vain tervehdyksen tai lyhyttä jutustelua ilman
+    // mitään hakukriteeriä (ei ikää, kokoa, allergiaa, kauppaa, ainesosaa eikä
+    // sairautta), EI haeta tuotteita — vastataan keskustellen ja pyydetään
+    // kertomaan koirasta. Tämä estää sen, että "moikka" laukaisisi koko valikoiman.
+    const GREETING_RX = /^(moi|moikka|hei|heipä|heippa|terve|morjens|moro|hei vaan|huomenta|päivää|iltaa|hello|hi|tervehdys|moikkelis|moikkis|jelou|jou|no moi|yo|moimoi)[\s!.,?]*$/i;
+    // Erota vapaa teksti rakenteellisesta ikä/koko-liitteestä (jonka widget lisää).
+    // Tervehdys tunnistetaan VAIN vapaasta tekstistä, JOS liite on pelkät oletukset
+    // ("Kaikille ikäluokille/kokoluokille"). Jos käyttäjä valitsi oikean ikä/koon,
+    // se on hakukriteeri eikä tervehdys.
+    // HUOM: norm() poistaa kaksoispisteet/pilkut, joten tarkistetaan normalisoitu muoto.
+    const usedDefaultsOnly = /koiran ikä kaikille ikäluokille koko kaikille kokoluokille/i.test(latestNorm);
+    const freeText = latestNorm.replace(/koiran ikä.*$/is, '').trim();
+    const greetTarget = usedDefaultsOnly ? freeText : latestNorm.trim();
+    const isPureGreeting = GREETING_RX.test(greetTarget);
+    // Onko viestissä mitään hakuun viittaavaa?
+    const searchScan = usedDefaultsOnly ? freeText : latestNorm;
+    const hasAnySearchSignal = /pentu|junior|aikuinen|seniori|senior|vuotias|\bkk\b|pieni|keski|suuri|iso|rotu|allergi|herkk|vehnä|vilja|kana|nauta|kala|lohi|possu|lammas|ankka|kalkkuna|riisi|peruna|herne|soija|maissi|kaura|peten|haukkula|zooplus|ruoka|ruoki|sisält|vähärasva|korkearasva|rasva|nivel|iho|suolisto|hammas|paino|ruokavalio|merkki|brändi|brandi/.test(searchScan);
+    const sessionAlready = (loadSession(conversationId) || []).length > 0;
+
+    if (isPureGreeting && !hasAnySearchSignal && !sessionAlready) {
+      return res.status(200).json({
+        reply: 'Moikka! 🐾 Kerro koirastasi, niin etsin sopivia ruokia. Voit mainita esimerkiksi ikäluokan (pentu, aikuinen, senior), koon, mahdolliset allergiat tai erityistoiveet — vaikkapa "3-vuotias keskikokoinen, kana-allergia" tai "viljaton ruoka seniorille".'
+      });
+    }
+
     // ── 1. TURVALLISUUSTARKISTUKSET ──────────────────────────────────────
     // VAKAVAT SAIRAUDET: elin + sairaustermi -YHDISTELMÄ (ei tarkkoja yhdyssanoja,
     // koska "munuaistulehdus" != "munuaissairaus" eikä vanha lista kattanut sitä).
