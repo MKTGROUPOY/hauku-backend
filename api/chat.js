@@ -69,7 +69,13 @@ function detectFollowUp(msg, sessionProducts) {
   if (isNewSearch) return false;
 
   // Uusi tieto koirasta (rotu/ikä/kauppa/uusi allergiailmoitus) -> uusi haku
-  const hasNewContext = /vuotias|\bkk\b|\bpentu\b|seniori|peten|haukkula|zooplus|allergi/.test(t);
+  // Uusi tieto koirasta (rotu/ikä/kauppa/uusi allergia tai rajaus) -> uusi haku.
+  // "ei sisällä X", "ilman X", "ei kanaa" jne ovat uusia rajauksia -> uusi haku
+  // (jotta filterProducts oikeasti poistaa allergeenin, ei jää follow-upiin
+  // jossa Gemini vain "selittää" vanhaa listaa ja voi hallusinoida).
+  const hasNewContext =
+    /vuotias|\bkk\b|\bpentu\b|seniori|peten|haukkula|zooplus|allergi/.test(t) ||
+    /ei sisäll|ei sisall|ilman|ei saa olla|ei varmasti|ei kana|ei lohi|ei kala|ei nauta|ei lamma|ei possu|ei vilja|ei herne|ei soija|ei peruna|ei riisi|ei ankka|ei kalkkuna|ei siipikarj|eikä|älä suosittele|ala suosittele/.test(t);
   if (hasNewContext) return false;
 
   // OLETUS: kun sessiossa on tuotteita ja viesti ei sisällä yllä olevia signaaleja,
