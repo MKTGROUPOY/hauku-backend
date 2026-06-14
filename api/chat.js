@@ -64,7 +64,7 @@ function detectFollowUp(msg, sessionProducts) {
   // "Ehdota/näytä muita" tms = käyttäjä haluaa ERI tuotteita samoilla kriteereillä.
   // Tämä laukaisee UUDEN haun (uusi jitter -> eri satunnaisvalinta samasta poolista)
   // sen sijaan että jäädään selittämään 5 cachetun tuotteen pohjalta.
-  const wantsOthers = /ehdota muita|näytä muita|nayta muita|anna muita|hae muita|toisia vaihtoehto|muita vaihtoehto|eri vaihtoehto|jotain muuta|muut vaihtoehdot|lisää vaihtoehtoja|lisaa vaihtoehtoja|muita tuotteita|toisia tuotteita|muita ehdotuksia/;
+  const wantsOthers = /ehdota muita|näytä muita|nayta muita|anna muita|hae muita|toisia vaihtoehto|muita vaihtoehto|eri vaihtoehto|jotain muuta|muut vaihtoehdot|lisää vaihtoehtoja|lisaa vaihtoehtoja|muita tuotteita|toisia tuotteita|muita ehdotuksia|uusia vaihtoehto|uudet vaihtoehdot|uusia ehdotuksia|uusia tuotteita|täysin uudet|taysin uudet|kokonaan uudet|toisenlaisia|eri tuotteita|eri merke|toiselta merk|toiselta valmistaj|vaihda tuotteet|näytä toiset|nayta toiset|anna uudet|anna uusia|anna lisää|anna lisaa/;
   const isNewSearch = /etsi|etsin|suosittele|löytyykö|loytyykö|löytyisikö|loytyisiko|haen|sopivaa ruokaa|mita ruokaa|onko teilla/.test(t) || wantsOthers.test(t);
   if (isNewSearch) return false;
 
@@ -195,6 +195,7 @@ export default async function handler(req, res) {
         '\nHUOM 2: Jos kysytty ainesosa (esim. tarkka mauste kuten oregano) EI ole listassa eikä muuallakaan annetussa datassa, sano rehellisesti että tätä ei ole eritelty tietokannassa ja kehota tarkistamaan pakkauksesta. ÄLÄ arvaa.' +
         '\nHUOM 3: Tuotteen NIMI voi paljastaa pääraaka-aineen (esim. "...Lohi" = lohi/kala on pääproteiini) — voit käyttää tätä vastatessasi.' +
         '\nHUOM 4: "Viljaton" on ERI ASIA kuin yksittäinen vilja "ei sisällä" -listassa. ÄLÄ päättele "viljaton" sen perusteella että esim. Riisi on listassa — tarkista "Viljaton" AINOASTAAN Erikoisominaisuudet-kentästä.' +
+        '\nHUOM 5 — KRIITTINEN: "Kaikille kokoluokille" tarkoittaa että tuote sopii KAIKKIIN kokoluokkiin MUKAAN LUKIEN "Erittäin suuri", "Suuri", "Keskikokoinen" ja "Pieni". Samoin "Kaikille ikäluokille" sopii KAIKKIIN ikäluokkiin (Pentu, Junior, Aikuinen, Senior). ÄLÄ KOSKAAN väitä tuotteen "ei sopivan" jollekin koko- tai ikäluokalle jos sen Koko/Ikä-kentässä lukee "Kaikille kokoluokille"/"Kaikille ikäluokille" — se sopii. Jos käyttäjä kyseenalaistaa tuotteen soveltuvuuden, tarkista annettu data: jos data sanoo tuotteen sopivan, VAHVISTA se, ÄLÄ pahoittele olematonta virhettä. Peräänny VAIN jos data oikeasti osoittaa ettei tuote sovi (Koko/Ikä-kenttä ei sisällä kysyttyä luokkaa eikä "Kaikille X" -merkintää).' +
         '\n\nKRIITTINEN MUOTOILUOHJE — TÄRKEÄ:' +
         '\n- Vastaa LYHYESTI, 1-4 lauseella PROOSANA. ÄLÄ toista tuotekortteja (ei "Rasvataso:", "Sopii:", "🛒 Osta" -rivejä) — ne näkyvät käyttäjälle JO edellisessä viestissä.' +
         '\n- ÄLÄ kirjoita ostolinkkejä uudelleen tässä vastauksessa.' +
