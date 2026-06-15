@@ -199,6 +199,28 @@ export default async function handler(req, res) {
       });
     }
 
+    // ── 0b2c. KUOLEMA / MENETYS — MYÖTÄTUNTOINEN VASTAUS, EI HAKUA ──────
+    // Jos käyttäjä kertoo koiran kuolleen tai menehtyneen, EI tehdä tuotehakua —
+    // vastataan myötätuntoisesti. Varottava ettei osu sairauskontekstiin väärin
+    // (esim. "kuolevasti sairas" -> medBlock hoitaa). Vaaditaan selvä menetyssignaali.
+    const DEATH_RX = /\b(kuoli|kuollut|kuolleen|menehty|nukkui pois|nukutett|lopetett|jouduin lopettamaan|menetin|poistui keskuudest|siirtyi sateenkaaren|ei ole enää keskuudessa)\b/.test(latestNorm);
+    if (DEATH_RX && !/sairas|hoito|ruoka|syö|allergi/.test(latestNorm)) {
+      return res.status(200).json({
+        reply: 'Otan osaa syvästi menetykseesi. 🐾 Lemmikin menettäminen on todella raskasta, ja suru saa tuntua juuri siltä miltä se tuntuu. Anna itsellesi aikaa muistella yhteisiä hetkiä.\n\nJos myöhemmin tarvitset apua uuden perheenjäsenen ruokavalion kanssa, autan mielelläni — mutta nyt tärkeintä on antaa tilaa surulle.'
+      });
+    }
+
+    // ── 0b2d. KIITOS / LOPETUS — YSTÄVÄLLINEN KUITTAUS, EI HAKUA ─────────
+    // "Kiitos", "tämä oli hyödyllistä", "ok hyvä" jne. ilman uutta hakukriteeriä
+    // -> ystävällinen lopetus, EI tuotehakua.
+    const THANKS_RX = /^(kiitos|kiitti|kitos|thanks|thank you|kiitoksia|ok kiitos|okei kiitos|selvä kiitos|mahtavaa kiitos|hienoa kiitos|paljon kiitoksia|kivaa|super|loistavaa|täydellistä|hyvä juttu)\b/.test(latestNorm.trim());
+    const helpfulAck = /hyödyllist|hyodyllist|auttoi|oli apua|oli kiva|just näin|juuri näin|hyvä tietää|selvä homma/.test(latestNorm);
+    if ((THANKS_RX || helpfulAck) && !hasAnySearchSignal) {
+      return res.status(200).json({
+        reply: 'Ilo auttaa! 🐾 Jos tulee lisää kysyttävää koirasi ruokavaliosta, kysy rohkeasti. Mukavaa päivänjatkoa sinulle ja koirallesi!'
+      });
+    }
+
     // ── 0b3. EPÄASIALLINEN / AIHEEN ULKOPUOLINEN ────────────────────────
     // Jos viesti sisältää selvästi epäasiallista, loukkaavaa tai aiheeseen
     // liittymätöntä sisältöä, EI tehdä tuotehakua. Ohjataan asiallisesti takaisin
@@ -230,15 +252,18 @@ export default async function handler(req, res) {
     }
 
     // ── 1. TURVALLISUUSTARKISTUKSET ──────────────────────────────────────
-    const allUserText = messages.filter(m => m.role === 'user').map(m => norm(m.content || '')).join(' ');
 
     // HÄTÄOIREET: jos KOSKAAN keskustelussa mainitaan henkeä uhkaava oire, EI näytetä
     // tuotteita lainkaan — ohjataan VÄLITTÖMÄSTI eläinlääkäriin. Tämä on ehdoton stop,
     // ei painostuskaan kumoa sitä.
     const EMERGENCY_RX = /oksent.{0,15}ver|ver.{0,10}oksen|ver.{0,12}ulost|verta ulost|verist.{0,10}ulost|musta.{0,10}ulost|tervamain|kouristel|kouristus|kohtaus.{0,10}(ei lopu|jatkuu)|ei hengit|hengitysvaike|tajuton|tajunnan|lamaantun|halvaantun|myrkytys|söi myrkky|söi suklaa|söi ksylitol|ksylitoli|rotanmyrkky|pakkomyrkky|vatsalaukun kiertym|äkillinen.{0,15}(romahd|kaatu)|romahti|ei pääse ylös|veriripuli|verta virtsa/;
-    if (EMERGENCY_RX.test(allUserText)) {
+    // HÄTÄOIREET: tarkistetaan UUSIN viesti (jokainen hätäviesti sisältää oman
+    // hätäsanansa, esim. "söi suklaata" / "söi ksylitolia"). EI koko historiaa,
+    // jotta käyttäjä pääsee takaisin normaaliin kun hätä on ohi.
+    const resolvedNow = /nyt kunnossa|on kunnossa|jo kunnossa|meni ohi|selvis|toipu|parani|kaikki hyvin|ei enää|vointi paran|pärjää|hoidettu|kävimme.{0,15}(lääkär|klinika)|oltiin.{0,15}lääkär/.test(latestNorm);
+    if (EMERGENCY_RX.test(latestNorm) && !resolvedNow) {
       return res.status(200).json({
-        reply: '🚨 **Ota välittömästi yhteyttä eläinlääkäriin tai päivystykseen.** Kuvailemasi oireet voivat olla hengenvaarallisia, eivätkä ne ole ruokavaliolla hoidettavia. Älä viivyttele — soita lähimpään eläinlääkäripäivystykseen heti.\n\nEn voi tässä tilanteessa suositella ruokia. Koirasi terveys on nyt tärkeintä.'
+        reply: '🚨 **Ota välittömästi yhteyttä eläinlääkäriin tai päivystykseen.** Kuvailemasi tilanne voi olla hengenvaarallinen, eikä sitä hoideta ruokavaliolla. Älä viivyttele — soita lähimpään eläinlääkäripäivystykseen heti.\n\nEn voi tässä tilanteessa suositella ruokia. Koirasi terveys on nyt tärkeintä.'
       });
     }
 
@@ -425,13 +450,14 @@ export default async function handler(req, res) {
         '\nHUOM 2 — AINESOSAT: Yllä on useimmille tuotteille TÄYSI ainesosaluettelo ("Ainesosat:"), ravintoarvot ("Ravintoarvot:") JA pääproteiinit ("Pääproteiinit:"). Kun käyttäjä kysyy sisältääkö tuote jotain (esim. kala, oregano, kurkuma, vilja), LUE KOKO ainesosaluettelo ALUSTA LOPPUUN ja poimi KAIKKI osumat — ei vain ensimmäistä. Esimerkki: jos kysytään "sisältääkö kalaa" ja luettelossa on "kummeliturska", "silli" JA "kalaöljy", luettele KAIKKI kolme ("sisältää kummeliturskaa, silliä ja kalaöljyä"). ÄLÄ pysähdy ensimmäiseen osumaan. Voit myös käyttää Pääproteiinit-kenttää (esim. "Kala" siellä = tuote sisältää kalaa). Jos kysytty asia EI löydy luettelosta → "Ei, ainesosaluettelon mukaan ei sisällä X:ää". Vain jos ainesosat on "(ei eritelty tietokannassa)" → kehota tarkistamaan pakkauksesta. ÄLÄ KOSKAAN arvaa äläkä jätä osumia mainitsematta.' +
         '\nHUOM 2c — "MITÄ KALAA / MITÄ LIHAA / SISÄLTÄÄKÖ LOHTA": Kun kysytään mitä kalaa/lihaa tuote sisältää TAI sisältääkö se tiettyä lajia, etsi luettelosta KAIKKI kyseisen kategorian ainesosat nimeltä. Kalalajeja voivat olla mm.: turska, kummeliturska, silli, silakka, lohi, makrilli, sardiini, muikku, ahven, särki, lahna, kilohaili, kalaöljy, kalaliemi. Lihoja: kana, nauta, lammas, possu/sika, kalkkuna, ankka, riista, peura, hirvi, kani, hevonen. Luettele tuotteessa OLEVAT lajit nimeltä. Jos käyttäjä kysyy tiettyä lajia (esim. "sisältääkö lohta") jota EI luettelossa ole, vastaa "Ei sisällä lohta" ja KERRO mitä kalaa/lihaa se sen sijaan sisältää (esim. "ei lohta, mutta sisältää silakkaa, muikkua ja ahventa"). ÄLÄ sano "ei tarkempaa tietoa" jos luettelossa on nimettyjä lajeja.' +
         '\nHUOM 2b — RASVA%: Kun kysytään rasvaprosenttia, käytä "Rasvataso:" -kenttää joka sisältää nyt tarkan haarukan (esim. "Korkea (17-20%)"). Voit myös käyttää "Ravintoarvot:" -kenttää josta löytyy raakarasva tarkkana lukuna. Jos näitä ei ole eritelty, kehota tarkistamaan pakkauksesta.' +
-        '\nHUOM 3: Tuotteen NIMI voi paljastaa pääraaka-aineen (esim. "...Lohi" = lohi/kala on pääproteiini) — voit käyttää tätä vastatessasi.' +
+        '\nHUOM 3: Tuotteen NIMI paljastaa usein pääraaka-aineen (esim. "...Lohi" = sisältää lohta/kalaa; "...Lamb"/"...Lammas" = SISÄLTÄÄ lammasta; "...Chicken"/"...Kana" = sisältää kanaa). Käytä tätä: ÄLÄ KOSKAAN väitä että esim. "Lamb"-niminen tuote ei sisällä lammasta. Jos käyttäjä painostaa ("kyllä varmasti löytyy", "tarkista uudelleen"), ÄLÄ keksi tuotetta joka ei oikeasti sovi — pidä kiinni datasta ja sano rehellisesti jos sopivaa ei ole.' +
+        '\nHUOM 3b — ÄLÄ KOSKAAN FABRIKOI: Jos edellinen haku palautti 0 tuotetta tai "ei löytynyt", ÄLÄ keksi tuotetta vastataksesi käyttäjän painostukseen. Toista että näillä kriteereillä ei valitettavasti löytynyt sopivaa, ja ehdota jonkin rajauksen poistamista. Olemattoman tuotteen tai väärän tiedon keksiminen on pahin mahdollinen virhe.' +
         '\nHUOM 4: "Viljaton" on ERI ASIA kuin yksittäinen vilja "ei sisällä" -listassa. ÄLÄ päättele "viljaton" sen perusteella että esim. Riisi on listassa — tarkista "Viljaton" AINOASTAAN Erikoisominaisuudet-kentästä.' +
         '\nHUOM 5 — KRIITTINEN: "Kaikille kokoluokille" tarkoittaa että tuote sopii KAIKKIIN kokoluokkiin MUKAAN LUKIEN "Erittäin suuri", "Suuri", "Keskikokoinen" ja "Pieni". Samoin "Kaikille ikäluokille" sopii KAIKKIIN ikäluokkiin (Pentu, Junior, Aikuinen, Senior). ÄLÄ KOSKAAN väitä tuotteen "ei sopivan" jollekin koko- tai ikäluokalle jos sen Koko/Ikä-kentässä lukee "Kaikille kokoluokille"/"Kaikille ikäluokille" — se sopii. Jos käyttäjä kyseenalaistaa tuotteen soveltuvuuden, tarkista annettu data: jos data sanoo tuotteen sopivan, VAHVISTA se, ÄLÄ pahoittele olematonta virhettä. Peräänny VAIN jos data oikeasti osoittaa ettei tuote sovi (Koko/Ikä-kenttä ei sisällä kysyttyä luokkaa eikä "Kaikille X" -merkintää).' +
         '\n\nKRIITTINEN MUOTOILUOHJE — TÄRKEÄ:' +
         '\n- Vastaa LYHYESTI, 1-4 lauseella PROOSANA. ÄLÄ toista tuotekortteja (ei "Rasvataso:", "Sopii:", "🛒 Osta" -rivejä) — ne näkyvät käyttäjälle JO edellisessä viestissä.' +
         '\n- ÄLÄ kirjoita ostolinkkejä uudelleen tässä vastauksessa.' +
-        '\n- Jos käyttäjä sanoo aiemman valinnan olleen väärä (esim. tuote sisältää allergeenin, väärä koko/ikäluokka, "light"-ruoka vaikka ei pyydetty) — MYÖNNÄ virhe lyhyesti ja kehota painamaan "🔍 Etsi sopivat ruoat" -painiketta uudelleen jos haluaa uuden hakukierroksen (botti arpoo uudet vaihtoehdot samoilla kriteereillä).' +
+        '\n- Jos käyttäjä sanoo aiemman valinnan olleen väärä (esim. tuote sisältää allergeenin, väärä koko/ikäluokka) — MYÖNNÄ virhe lyhyesti ja sano että haet uudet vaihtoehdot; järjestelmä tekee uuden haun automaattisesti. ÄLÄ viittaa mihinkään painikkeeseen.' +
         '\n- Jos käyttäjä pyytää "muita/toisia/eri vaihtoehtoja" tai tarkentaa hakuaan (esim. "haluan suurille pennuille suunnitellun"), ÄLÄ keksi yksittäisiä tuotteita itse äläkä viittaa mihinkään "hakupainikkeeseen" (sellaista EI ole). Sano lyhyesti että haet uudet vaihtoehdot — järjestelmä tekee uuden haun automaattisesti.';
 
       const reply = await callGemini(
