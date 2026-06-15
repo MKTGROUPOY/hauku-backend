@@ -152,7 +152,9 @@ export default async function handler(req, res) {
     // mitään hakukriteeriä (ei ikää, kokoa, allergiaa, kauppaa, ainesosaa eikä
     // sairautta), EI haeta tuotteita — vastataan keskustellen ja pyydetään
     // kertomaan koirasta. Tämä estää sen, että "moikka" laukaisisi koko valikoiman.
-    const GREETING_RX = /^(moi|moikka|hei|heipä|heippa|terve|morjens|moro|hei vaan|huomenta|päivää|iltaa|hello|hi|tervehdys|moikkelis|moikkis|jelou|jou|no moi|yo|moimoi)[\s!.,?]*$/i;
+    const GREETING_RX = /^(moi|moikka|hei|heipä|heippa|terve|morjens|moro|hei vaan|huomenta|päivää|iltaa|hello|hi|tervehdys|moikkelis|moikkis|jelou|jou|no moi|yo|moimoi)([\s!.,?]+(mitä kuuluu|mitä äijä|mitäs|miten menee|miten voit|kuinka voit|kuinka menee|miten päivä|mitä teet))?[\s!.,?]*$/i;
+    // Myös pelkkä small-talk ilman tervehdyssanaa
+    const SMALLTALK_RX = /^(mitä kuuluu|miten menee|miten voit|kuinka voit|kuinka menee|mitäs kuuluu|mitä äijä|miten päiväsi|oletko kunnossa|jaksatko)[\s!.,?]*$/i;
     // Erota vapaa teksti rakenteellisesta ikä/koko-liitteestä (jonka widget lisää).
     // Tervehdys tunnistetaan VAIN vapaasta tekstistä, JOS liite on pelkät oletukset
     // ("Kaikille ikäluokille/kokoluokille"). Jos käyttäjä valitsi oikean ikä/koon,
@@ -161,7 +163,7 @@ export default async function handler(req, res) {
     const usedDefaultsOnly = /koiran ikä kaikille ikäluokille koko kaikille kokoluokille/i.test(latestNorm);
     const freeText = latestNorm.replace(/koiran ikä.*$/is, '').trim();
     const greetTarget = usedDefaultsOnly ? freeText : latestNorm.trim();
-    const isPureGreeting = GREETING_RX.test(greetTarget);
+    const isPureGreeting = GREETING_RX.test(greetTarget) || SMALLTALK_RX.test(greetTarget);
     // Onko viestissä mitään hakuun viittaavaa?
     const searchScan = usedDefaultsOnly ? freeText : latestNorm;
     const hasAnySearchSignal = /pentu|junior|aikuinen|seniori|senior|vuotias|\bkk\b|pieni|keski|suuri|iso|rotu|allergi|herkk|vehnä|vilja|kana|nauta|kala|lohi|possu|lammas|ankka|kalkkuna|riisi|peruna|herne|soija|maissi|kaura|peten|haukkula|zooplus|ruoka|ruoki|sisält|vähärasva|korkearasva|rasva|nivel|iho|suolisto|hammas|paino|ruokavalio|merkki|brändi|brandi/.test(searchScan);
@@ -177,7 +179,7 @@ export default async function handler(req, res) {
     // "Kuka sinut teki", "mitä tekoälyä käytät", "miten toimit" jne. EIVÄT ole
     // tuotehakuja. Vastataan kiinteästi (ei haeta tuotteita, ei vuodeta teknisiä
     // yksityiskohtia). Tunnistetaan vain jos EI ole hakukriteeriä mukana.
-    const isMetaIdentity = /miten.{0,15}(rakennettu|toimit|tehty)|kuka.{0,15}(rakentanut|tehnyt|loi|kehittän)|mitä tekoäly|mika tekoaly|oletko.{0,10}(botti|tekoäly|robotti|ihminen|ai\b)|mikä.{0,10}(malli|tekoäly).{0,10}(olet|käytät)|gpt|gemini|chatgpt|kielimalli|miten sinut|mistä.{0,10}(tiedät|saat tiedot)|miten.{0,10}suosittelet/.test(latestNorm);
+    const isMetaIdentity = /miten.{0,15}(rakennettu|toimit|tehty)|kuka.{0,20}(rakentan|tehnyt|teki|loi|kehittän|koodas|ohjelmoi|omistaa)|mit[äaä].{0,5}tekoäly|mill[äa].{0,5}tekoäly|mik[äa].{0,8}tekoäly|tekoälyä käyt|tekoälyllä toimi|oletko.{0,10}(botti|tekoäly|robotti|ihminen|ai\b|kone)|mik[äa].{0,10}(malli|tekoäly).{0,10}(olet|käyt)|\bgpt\b|gemini|chatgpt|claude|kielimalli|miten sinut|mistä.{0,10}(tiedät|saat tiedot)|miten.{0,10}suosittelet|kuka.{0,10}olet|mikä.{0,8}olet/.test(latestNorm);
     if (isMetaIdentity && !hasAnySearchSignal) {
       return res.status(200).json({
         reply: 'Olen Hauku, RuokaKoiralle.fi:n koiranruoka-assistentti. 🐾 Autan löytämään koirallesi sopivan ruoan valikoimastamme sen iän, koon, mahdollisten allergioiden ja erityistarpeiden perusteella. Kerro koirastasi, niin etsin sopivia vaihtoehtoja!'
@@ -194,6 +196,19 @@ export default async function handler(req, res) {
     if (PRICE_RX) {
       return res.status(200).json({
         reply: 'En valitettavasti pysty vertailemaan tuotteiden hintoja — tietokannassamme ei ole hintatietoja, joten en voi suositella ruokia hinnan perusteella. Hinnat näet suoraan kauppojen verkkosivuilta (esim. Peten Koiratarvike, Koiratarvike Haukkula), ja sieltä voit vertailla edullisimmat vaihtoehdot.\n\nVoin kuitenkin auttaa löytämään koirallesi ravitsemuksellisesti sopivia ruokia iän, koon ja mahdollisten allergioiden perusteella — kerro koirastasi, niin etsin sopivia vaihtoehtoja!'
+      });
+    }
+
+    // ── 0b3. EPÄASIALLINEN / AIHEEN ULKOPUOLINEN ────────────────────────
+    // Jos viesti sisältää selvästi epäasiallista, loukkaavaa tai aiheeseen
+    // liittymätöntä sisältöä, EI tehdä tuotehakua. Ohjataan asiallisesti takaisin
+    // aiheeseen tai asiakaspalveluun. Varovasti: ei saa estää oikeita oire- tai
+    // ruokakysymyksiä, joten vaaditaan selvä epäasiallinen signaali.
+    const OFFTOPIC_RX = /\b(vittu|perkele|saatana|helvetti|paska|kusi|huora|homo|neekeri|natsi|tappaa ihmis|ammu|pommi|seksi|porno|knulla|fuck|shit|nazi|kill people|rasis)\b/;
+    const ABSURD_RX = /syö.{0,15}(ihmis|lapsi|lapsia|naapuri|vauva)|ulkomaalais.{0,10}laps|söi ihmis/;
+    if ((OFFTOPIC_RX.test(latestNorm) || ABSURD_RX.test(latestNorm))) {
+      return res.status(200).json({
+        reply: 'Autan mielelläni koirasi ruokavalioon liittyvissä asioissa 🐾 Kerro koirasi iästä, koosta ja mahdollisista allergioista tai erityistarpeista, niin etsin sopivia ruokia.\n\nJos sinulla on muuta kysyttävää, voit olla yhteydessä asiakaspalveluumme: asiakaspalvelu@ruokakoiralle.fi'
       });
     }
 
@@ -215,6 +230,18 @@ export default async function handler(req, res) {
     }
 
     // ── 1. TURVALLISUUSTARKISTUKSET ──────────────────────────────────────
+    const allUserText = messages.filter(m => m.role === 'user').map(m => norm(m.content || '')).join(' ');
+
+    // HÄTÄOIREET: jos KOSKAAN keskustelussa mainitaan henkeä uhkaava oire, EI näytetä
+    // tuotteita lainkaan — ohjataan VÄLITTÖMÄSTI eläinlääkäriin. Tämä on ehdoton stop,
+    // ei painostuskaan kumoa sitä.
+    const EMERGENCY_RX = /oksent.{0,15}ver|ver.{0,10}oksen|ver.{0,12}ulost|verta ulost|verist.{0,10}ulost|musta.{0,10}ulost|tervamain|kouristel|kouristus|kohtaus.{0,10}(ei lopu|jatkuu)|ei hengit|hengitysvaike|tajuton|tajunnan|lamaantun|halvaantun|myrkytys|söi myrkky|söi suklaa|söi ksylitol|ksylitoli|rotanmyrkky|pakkomyrkky|vatsalaukun kiertym|äkillinen.{0,15}(romahd|kaatu)|romahti|ei pääse ylös|veriripuli|verta virtsa/;
+    if (EMERGENCY_RX.test(allUserText)) {
+      return res.status(200).json({
+        reply: '🚨 **Ota välittömästi yhteyttä eläinlääkäriin tai päivystykseen.** Kuvailemasi oireet voivat olla hengenvaarallisia, eivätkä ne ole ruokavaliolla hoidettavia. Älä viivyttele — soita lähimpään eläinlääkäripäivystykseen heti.\n\nEn voi tässä tilanteessa suositella ruokia. Koirasi terveys on nyt tärkeintä.'
+      });
+    }
+
     // VAKAVAT SAIRAUDET: elin + sairaustermi -YHDISTELMÄ (ei tarkkoja yhdyssanoja,
     // koska "munuaistulehdus" != "munuaissairaus" eikä vanha lista kattanut sitä).
     // Tarkistetaan KAIKKI käyttäjän viestit (ei vain viimeisin) ja KERRAN mainittu
@@ -268,7 +295,15 @@ export default async function handler(req, res) {
       STANDALONE_RX.test(latestNorm) ||
       isDiagnosedDisease(latestNorm);
     const sessionHasProducts = (loadSession(conversationId) || []).length > 0;
-    const isMedFollowUp = medBlock && !latestIsMed && sessionHasProducts;
+
+    // isMedFollowUp sallii VAIN aidot tietokysymykset jo käsiteltyyn sairaustapaukseen
+    // (esim. "paljonko rasvaa tuotteessa X", "sisältääkö se viljaa"). Jos käyttäjä
+    // sen sijaan PAINOSTAA suosittelemaan ("anna nyt edes joku ruoka", "suosittele
+    // jotain", "mikä näistä on paras") sairauden jälkeen, EI päästetä vapaaseen
+    // follow-upiin — näytetään uudelleen eläinlääkärimuistutus. Botti ei saa antaa
+    // periksi painostukselle ja alkaa suositella ruokaa sairaalle koiralle.
+    const pressureToRecommend = /anna.{0,15}(ruoka|ruoki|joku|jotain|edes)|suosittele|mikä.{0,15}(paras|sopisi|kannattaa)|mitä.{0,10}(ostan|ostaisin|antaisin|valitsen)|kumpi.{0,10}(parempi|kannattaa)|valitse puolestani|sano joku|kerro joku|haluan silti|anna silti/.test(latestNorm);
+    const isMedFollowUp = medBlock && !latestIsMed && sessionHasProducts && !pressureToRecommend;
 
     if (medBlock && !isMedFollowUp) {
       // Onko sairaudelle olemassa OTC-erikoisruokavaliokategoria valikoimassamme?
@@ -496,7 +531,7 @@ export default async function handler(req, res) {
     const hasFilters = !!(
       filters.excl?.length || filters.age || filters.size ||
       filters.store || filters.specialDiets?.length ||
-      filters.monoProtein || filters.singleCarb
+      filters.monoProtein || filters.singleCarb || filters.fatLevel
     );
 
     if (hasFilters) {
