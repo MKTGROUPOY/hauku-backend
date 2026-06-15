@@ -340,7 +340,7 @@ export default async function handler(req, res) {
           const intro =
             `🏥 **Tärkeää:** Kuvailemasi tila on lääketieteellinen, ja ruokavaliosta on aina syytä keskustella eläinlääkärin kanssa ennen muutoksia — hän tuntee koirasi tilanteen ja voi tarvittaessa määrätä erityisruokavalion.\n\nValikoimastamme löytyy seuraavat ${dietArea} suunnitellut ruoat, jotka voit ottaa puheeksi eläinlääkärin kanssa:\n\n`;
           const sessionData = dietProducts.slice(0, 8).map(p => ({
-            nimi: p.nimi, rasva: p.rasva, erikois: p.erikois?.slice(0, 4), linkki: p.linkki,
+            nimi: p.nimi, rasva: p.rasva, erikois: p.erikois?.slice(0, 4), linkki: p.linkki, proteiinit: p.proteiinit, hiilihydraatit: p.hiilihydraatit,
           }));
           const hidden = '\n<hauku_data>' + JSON.stringify(sessionData) + '</hauku_data>';
           saveSession(conversationId, dietProducts.slice(0, 30));
@@ -484,7 +484,7 @@ export default async function handler(req, res) {
         if (matches.length > 0) {
           const list = buildDirectProductResponse(matches, {});
           const sessionData = matches.slice(0, 8).map(p => ({
-            nimi: p.nimi, rasva: p.rasva, erikois: p.erikois?.slice(0, 4), linkki: p.linkki,
+            nimi: p.nimi, rasva: p.rasva, erikois: p.erikois?.slice(0, 4), linkki: p.linkki, proteiinit: p.proteiinit, hiilihydraatit: p.hiilihydraatit,
           }));
           const hidden = '\n<hauku_data>' + JSON.stringify(sessionData) + '</hauku_data>';
           saveSession(conversationId, matches.slice(0, 30));
@@ -580,7 +580,7 @@ export default async function handler(req, res) {
       // Tallenna sessio: KOKO suodatettu lista (max 30) jotta "näytä loput" voi
       // näyttää oikeat piilossa olevat tuotteet ilman uutta hakua/hallusinaatiota.
       const sessionData = matched.slice(0, 30).map(p => ({
-        nimi: p.nimi, rasva: p.rasva, erikois: p.erikois?.slice(0, 4), linkki: p.linkki,
+        nimi: p.nimi, rasva: p.rasva, erikois: p.erikois?.slice(0, 4), linkki: p.linkki, proteiinit: p.proteiinit, hiilihydraatit: p.hiilihydraatit,
       }));
       if (conversationId) saveSession(conversationId, sessionData);
 
