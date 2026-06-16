@@ -74,9 +74,13 @@ function detectFollowUp(msg, sessionProducts) {
   // (jotta filterProducts oikeasti poistaa allergeenin, ei jää follow-upiin
   // jossa Gemini vain "selittää" vanhaa listaa ja voi hallusinoida).
   const hasNewContext =
-    /vuotias|\bkk\b|\bpentu\b|seniori|peten|haukkula|zooplus|allergi/.test(t) ||
+    /vuotias|\bkk\b|\bpentu\b|junior|seniori|senior|aikuinen|peten|haukkula|zooplus|allergi/.test(t) ||
+    // Erikoisruokavaliot ja ominaisuudet -> uusi haku (näille on oikea suodatin)
+    /hypoaller|nivel|iho-ongelm|iho ongelm|suolisto|herkk|viljaton|gluteeniton|vähärasva|korkearasva|painonhall|laihtu|lihon|ylipaino|aktiivi|metsäst|työkoira|energia|steriloi|kastroi|hammaskiv|kasvis|vegaani|vegan|lihaton|diabet|yksiproteiin|yhden proteiin/.test(t) ||
+    // Koko ja rotu -> uusi haku
+    /pieni|pienelle|pienille|keskikoko|suuri|suurelle|isolle|iso rotu|jättikoko|erittäin suuri|rotuinen|rotuiselle/.test(t) ||
     /ei sisäll|ei sisall|ilman|ei saa olla|ei varmasti|ei kana|ei lohi|ei kala|ei nauta|ei lamma|ei possu|ei vilja|ei herne|ei soija|ei peruna|ei riisi|ei ankka|ei kalkkuna|ei siipikarj|eikä|älä suosittele|ala suosittele/.test(t) ||
-    // Tarkennukset jotka tarkoittavat UUTTA, tiukempaa hakua (ei vanhan selittämistä):
+    // Tarkennukset jotka tarkoittavat UUTTA, tiukempaa hakua:
     /suunniteltu|suunnattu|tarkoitettu (nimenomaan|erityisesti|varsinaisesti)|nimenomaan.{0,20}(pennuille|pennulle|junioreille|senioreille|aikuisille)|varsinaisesti|oikeasti.{0,15}(pentu|penn)|ihan.{0,15}(pentu|penn)|haluan.{0,30}(suunniteltu|pennuille|pennulle|junioreille)|suurille pennuil|pienille pennuil|isoille pennuil/.test(t);
   if (hasNewContext) return false;
 
@@ -255,7 +259,7 @@ export default async function handler(req, res) {
     // -> ohjaa tarkentamaan. Pelkkä ikäluokka ("paras penturuoka") EI riitä, koska
     // emme voi nimetä yhtä "parasta" — mutta jos mukana on konkreettisia rajauksia,
     // annetaan haun edetä.
-    const hasConcreteCriteria = /allergi|vuotias|\bkk\b|viljaton|vähärasva|nivel-ongelm|iho-ongelm|suolisto-ongelm|herkk|aktiivi|painonhall|\bkana\b|\bnauta\b|lammas|kala|lohi|possu/.test(latestNorm);
+    const hasConcreteCriteria = /allergi|vuotias|\bkk\b|viljaton|vähärasva|korkearasva|nivel|iho|suolisto|herkk|aktiivi|painonhall|hypoaller|\bkana\b|\bnauta\b|lammas|kala|lohi|possu|pien|suur|iso|keskikoko|pentu|junior|senior|metsäst/.test(latestNorm);
     if (isSuperlative && !hasConcreteCriteria) {
       return res.status(200).json({
         reply: 'Hyvä kysymys! "Parasta" ruokaa ei ole yksiselitteisesti — sopivin riippuu koirasi iästä, koosta, mahdollisista allergioista ja erityistarpeista. Kerro näistä, niin suosittelen juuri sinun koirallesi sopivia laadukkaita vaihtoehtoja. Esimerkiksi: "iso 3kk pentu, ei allergioita" tai "aktiivinen aikuinen, viljaton".'
@@ -291,7 +295,7 @@ export default async function handler(req, res) {
     // erikoisruokavaliotermimme ("iho-ongelmat", "nivel-ongelmat", "suolisto-ongelmat"
     // ovat normaaleja hakukriteereitä, eivät diagnosoituja sairauksia).
     const SERIOUS_DISEASE_RX = /tulehdus|tulehtun|sairaus|vajaatoiminta|\btauti|kasvai|kivet|\bkivi|krooninen|akuutti|koholla|kohon|heikentynyt|toimintahäiriö|infektio|vika\b/;
-    const STANDALONE_RX = /diabet|epilep|syöp|kasvai|pankreatiit|anemia|autoimmuun|kardiomyopat|\bdcm\b|\bibd\b|haavain|colitis|koliitti|gastriitti|enteriitti|cushing|addison|hypotyre|hypertyre|mukoseele/;
+    const STANDALONE_RX = /diabet|diabee|sokeritaut|epilep|syöp|kasvai|pankreatiit|anemia|autoimmuun|kardiomyopat|\bdcm\b|\bibd\b|haavain|colitis|koliitti|gastriitti|enteriitti|cushing|addison|hypotyre|hypertyre|kilpirauhasen vajaa|mukoseele/;
 
     // DIAGNOOSISANASTO laukaisee YKSINÄÄN: "todettiin/diagnosoitiin/eläinlääkäri
     // totesi" tarkoittaa AINA eläinlääkärin toteamaa sairautta, riippumatta siitä
@@ -352,7 +356,7 @@ export default async function handler(req, res) {
         { rx: /maksa/,                            diet: 'Maksan vajaatoiminta' },
         { rx: /haima|pankrea/,                    diet: 'Haiman vajaatoiminta' },
         { rx: /virtsa|rakkokiv|struvii|oksalaat/, diet: 'Virtsakivet' },
-        { rx: /diabet/,                           diet: 'Diabetes' },
+        { rx: /diabet|diabee|sokeritaut/,         diet: 'Diabetes' },
       ];
       const matchedDiet = DISEASE_DIET_MAP.find(d => d.rx.test(allMed));
 
@@ -456,7 +460,7 @@ export default async function handler(req, res) {
       const followUpPrompt = SYSTEM_PROMPT +
         '\n\n[JATKOKYSYMYS — vastaa käyttäjän kysymykseen alla olevan datan perusteella.]' +
         '\n\nAiemmin löydetyt tuotteet (TÄYDELLISET TIEDOT):\n' + (ctx || '(ei aiempaa listaa)') +
-        '\n\nHUOM 1: "Tämä tuote EI sisällä" -lista on KÄÄNTEINEN — jos kysytty raaka-aine ON tässä listassa, tuote EI sisällä sitä (vastaa "Ei, ei sisällä X:ää").' +
+        '\nHUOM 0 — KAIKKEIN TÄRKEIN: Yllä on lista "Aiemmin löydetyt tuotteet". Saat puhua VAIN näistä tuotteista nimeltä. ÄLÄ KOSKAAN mainitse, ehdota tai keksi mitään muuta tuotenimeä kuin yllä listatut — et näe koko valikoimaa, joten et voi tietää mitä muuta on. Jos käyttäjä haluaa muita/uusia tuotteita, sano että haet ne (järjestelmä hakee automaattisesti). Olemattoman tuotteen mainitseminen (esim. "Taste of the Wild", "Royal Canin Satiety", "Specific Weight") on ehdottomasti kielletty ja pahin mahdollinen virhe.' +
         '\nHUOM 2 — AINESOSAT: Yllä on useimmille tuotteille TÄYSI ainesosaluettelo ("Ainesosat:"), ravintoarvot ("Ravintoarvot:") JA pääproteiinit ("Pääproteiinit:"). Kun käyttäjä kysyy sisältääkö tuote jotain (esim. kala, oregano, kurkuma, vilja), LUE KOKO ainesosaluettelo ALUSTA LOPPUUN ja poimi KAIKKI osumat — ei vain ensimmäistä. Esimerkki: jos kysytään "sisältääkö kalaa" ja luettelossa on "kummeliturska", "silli" JA "kalaöljy", luettele KAIKKI kolme ("sisältää kummeliturskaa, silliä ja kalaöljyä"). ÄLÄ pysähdy ensimmäiseen osumaan. Voit myös käyttää Pääproteiinit-kenttää (esim. "Kala" siellä = tuote sisältää kalaa). Jos kysytty asia EI löydy luettelosta → "Ei, ainesosaluettelon mukaan ei sisällä X:ää". Vain jos ainesosat on "(ei eritelty tietokannassa)" → kehota tarkistamaan pakkauksesta. ÄLÄ KOSKAAN arvaa äläkä jätä osumia mainitsematta.' +
         '\nHUOM 2c — "MITÄ KALAA / MITÄ LIHAA / SISÄLTÄÄKÖ LOHTA": Kun kysytään mitä kalaa/lihaa tuote sisältää TAI sisältääkö se tiettyä lajia, etsi luettelosta KAIKKI kyseisen kategorian ainesosat nimeltä. Kalalajeja voivat olla mm.: turska, kummeliturska, silli, silakka, lohi, makrilli, sardiini, muikku, ahven, särki, lahna, kilohaili, kalaöljy, kalaliemi. Lihoja: kana, nauta, lammas, possu/sika, kalkkuna, ankka, riista, peura, hirvi, kani, hevonen. Luettele tuotteessa OLEVAT lajit nimeltä. Jos käyttäjä kysyy tiettyä lajia (esim. "sisältääkö lohta") jota EI luettelossa ole, vastaa "Ei sisällä lohta" ja KERRO mitä kalaa/lihaa se sen sijaan sisältää (esim. "ei lohta, mutta sisältää silakkaa, muikkua ja ahventa"). ÄLÄ sano "ei tarkempaa tietoa" jos luettelossa on nimettyjä lajeja.' +
         '\nHUOM 2b — RASVA%: Kun kysytään rasvaprosenttia, käytä "Rasvataso:" -kenttää joka sisältää nyt tarkan haarukan (esim. "Korkea (17-20%)"). Voit myös käyttää "Ravintoarvot:" -kenttää josta löytyy raakarasva tarkkana lukuna. Jos näitä ei ole eritelty, kehota tarkistamaan pakkauksesta.' +
