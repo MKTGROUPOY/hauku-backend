@@ -221,6 +221,17 @@ export default async function handler(req, res) {
       });
     }
 
+    // ── 0b2e. ALKUPERÄ / MAA — EI ALKUPERÄTIETOJA ───────────────────────
+    // Tietokannassa ei ole tuotteiden alkuperämaata. Jos käyttäjä haluaa
+    // "suomalaista/kotimaista" tai "ei ulkomaista", emme voi suodattaa sen mukaan.
+    // Ohjataan rehellisesti — EI keksitä tuotenimiä alkuperän perusteella.
+    const ORIGIN_RX = /suomalais|kotimais|made in finland|valmistettu suomess|ei ulkomais|ulkomaalais.{0,8}merk|ei tuontia|kotimaa|alkuperämaa|mistä maasta|missä valmistettu|suomes valmis/.test(latestNorm);
+    if (ORIGIN_RX && !/allergi|sairas/.test(latestNorm)) {
+      return res.status(200).json({
+        reply: 'Hyvä toive! Valitettavasti en pysty suodattamaan tuotteita valmistusmaan mukaan — tietokannassamme ei ole erikseen merkitty tuotteiden alkuperämaata, joten en halua antaa epävarmaa tietoa. Valmistusmaan näet useimmiten tuotteen pakkauksesta tai kaupan tuotesivulta.\n\nVoin kuitenkin auttaa löytämään koirallesi sopivia ruokia muiden kriteerien perusteella (ikä, koko, allergiat, viljaton, kasvispohjainen tms.) — kerro koirastasi, niin etsin vaihtoehtoja!'
+      });
+    }
+
     // ── 0b3. EPÄASIALLINEN / AIHEEN ULKOPUOLINEN ────────────────────────
     // Jos viesti sisältää selvästi epäasiallista, loukkaavaa tai aiheeseen
     // liittymätöntä sisältöä, EI tehdä tuotehakua. Ohjataan asiallisesti takaisin
@@ -621,7 +632,8 @@ export default async function handler(req, res) {
 
     // ── 5. YLEINEN KOIRAKYSYMYS ───────────────────────────────────────────
     const reply = await callGemini(
-      SYSTEM_PROMPT + `\n\n[Valikoimassa ${allProducts.length} tuotetta. Kysy koiran tiedot ennen suosituksia.]`,
+      SYSTEM_PROMPT + `\n\n[Valikoimassa ${allProducts.length} tuotetta. Kysy koiran tiedot ennen suosituksia.]` +
+      '\n\nKRIITTINEN: ÄLÄ KOSKAAN keksi tai mainitse yksittäisiä tuotenimiä tässä vastauksessa. Et näe tuotelistaa, joten et voi tietää mitä valikoimassa on. Jos käyttäjä kysyy "onko teillä X-ruokaa" (esim. kasvisruokaa, tietyn merkin ruokaa), ÄLÄ vahvista tuotenimillä — sano sen sijaan että voit etsiä sopivia ja pyydä käyttäjää tarkentamaan koiran tiedot (ikä, koko, toiveet), TAI kehota kuvailemaan tarve niin haet vaihtoehdot. Tuotenimen keksiminen on pahin mahdollinen virhe.',
       messages.filter((m, i) => !(i === 0 && m.role === 'assistant'))
         .map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: (m.content || '').replace(/<hauku_data>[\s\S]*?<\/hauku_data>/g, '') }] })),
       apiKey
@@ -630,6 +642,12 @@ export default async function handler(req, res) {
 
   } catch (err) {
     console.error('Hauku error:', err.message);
-    return res.status(500).json({ error: err.message });
+    // Näytä käyttäjälle ystävällinen viesti, ei raakaa virhettä. Gemini-ylikuormitus
+    // (503/429) on tilapäinen — kehotetaan yrittämään uudelleen.
+    const isOverload = /\b(503|429|UNAVAILABLE|RESOURCE_EXHAUSTED|high demand|overload)\b/i.test(err.message || '');
+    const friendly = isOverload
+      ? 'Palvelu on juuri nyt ruuhkautunut 🐾 Yritäthän hetken kuluttua uudelleen — kysymyksesi ei kadonnut, voit lähettää sen vain uudestaan.'
+      : 'Hups, jokin meni teknisesti pieleen. Yritäthän uudelleen hetken kuluttua. Jos ongelma jatkuu, voit olla yhteydessä: asiakaspalvelu@ruokakoiralle.fi';
+    return res.status(200).json({ reply: friendly, error: err.message });
   }
 }
