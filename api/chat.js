@@ -73,13 +73,26 @@ function detectFollowUp(msg, sessionProducts) {
   // "ei sisällä X", "ilman X", "ei kanaa" jne ovat uusia rajauksia -> uusi haku
   // (jotta filterProducts oikeasti poistaa allergeenin, ei jää follow-upiin
   // jossa Gemini vain "selittää" vanhaa listaa ja voi hallusinoida).
+  // VIITTAUS AIEMPAAN TUOTTEESEEN: jos viesti kysyy tietystä jo näytetystä
+  // tuotteesta ("sisältääkö SE/TUO/TÄMÄ/ensimmäinen X", "onko SIINÄ X", "mitä
+  // lihaa SIINÄ on", "kerro tuosta", viittaus tuotteen nimeen tms.), kyseessä on
+  // JATKOKYSYMYS — ei uusi haku — VAIKKA mukana olisi sana "allerginen" (esim.
+  // "sisältääkö se parsakaalia, koira on sille allerginen"). Tämä viittaussignaali
+  // VOITTAA hasNewContextin, jotta konteksti ei karkaa väärään hakuun.
+  const refersToShownProduct =
+    /\b(se|sen|siin|sit|tuo|tuon|tuos|tää|tämä|tän|näist|niist|ne|nää|ensimmäinen|ekana|eka|toinen|tokana|kolmas|viimeinen|edellä|aiemmin|äsken|mainitsemasi|ehdottamasi|suosittelemasi|suosittelit|ehdotit|mainitsit)\b/.test(t) &&
+    /sisält|onko siin|onko siell|mitä.{0,10}(lihaa|kalaa|proteiin|ainesos)|paljonko|kuinka paljon|montako|kerro|mikä.{0,10}(rasva|proteiin)|rasva|allergeeni|gluteeni|onko se|onko tuo|onko tää/.test(t);
+  if (refersToShownProduct) return true;
+
   const hasNewContext =
-    /vuotias|\bkk\b|\bpentu\b|junior|seniori|senior|aikuinen|peten|haukkula|zooplus|allergi/.test(t) ||
+    /vuotias|\bkk\b|\bpentu|pennu|junior|seniori|senior|aikuinen|peten|haukkula|zooplus|allergi/.test(t) ||
     // Erikoisruokavaliot ja ominaisuudet -> uusi haku (näille on oikea suodatin)
     /hypoaller|nivel|iho-ongelm|iho ongelm|suolisto|herkk|viljaton|gluteeniton|vähärasva|korkearasva|painonhall|laihtu|lihon|ylipaino|aktiivi|metsäst|työkoira|energia|steriloi|kastroi|hammaskiv|kasvis|vegaani|vegan|lihaton|diabet|yksiproteiin|yhden proteiin/.test(t) ||
     // Koko ja rotu -> uusi haku
     /pieni|pienelle|pienille|keskikoko|suuri|suurelle|isolle|iso rotu|jättikoko|erittäin suuri|rotuinen|rotuiselle/.test(t) ||
-    /ei sisäll|ei sisall|ilman|ei saa olla|ei varmasti|ei kana|ei lohi|ei kala|ei nauta|ei lamma|ei possu|ei vilja|ei herne|ei soija|ei peruna|ei riisi|ei ankka|ei kalkkuna|ei siipikarj|eikä|älä suosittele|ala suosittele/.test(t) ||
+    /ei sisäll|ei sisall|ilman|ei saa olla|ei varmasti|ei mitään|ei yhtään|ei kana|ei lohi|ei kala|ei nauta|ei lamma|ei possu|ei vilja|ei herne|ei soija|ei peruna|ei riisi|ei ankka|ei kalkkuna|ei siipikarj|eikä|älä suosittele|ala suosittele/.test(t) ||
+    // "täysin eri juttu / uusi juttu / nyt jotain muuta" = käyttäjä vaihtaa aihetta
+    /täysin eri|tysin eri|eri juttu|uusi juttu|toinen juttu|aihe vaihtuu|vaihdetaan|nyt jotain (muuta|eri)|unohda (edell|toi|äsk)/.test(t) ||
     // Tarkennukset jotka tarkoittavat UUTTA, tiukempaa hakua:
     /suunniteltu|suunnattu|tarkoitettu (nimenomaan|erityisesti|varsinaisesti)|nimenomaan.{0,20}(pennuille|pennulle|junioreille|senioreille|aikuisille)|varsinaisesti|oikeasti.{0,15}(pentu|penn)|ihan.{0,15}(pentu|penn)|haluan.{0,30}(suunniteltu|pennuille|pennulle|junioreille)|suurille pennuil|pienille pennuil|isoille pennuil/.test(t);
   if (hasNewContext) return false;
@@ -156,9 +169,9 @@ export default async function handler(req, res) {
     // mitään hakukriteeriä (ei ikää, kokoa, allergiaa, kauppaa, ainesosaa eikä
     // sairautta), EI haeta tuotteita — vastataan keskustellen ja pyydetään
     // kertomaan koirasta. Tämä estää sen, että "moikka" laukaisisi koko valikoiman.
-    const GREETING_RX = /^(moi|moikka|hei|heipä|heippa|terve|morjens|moro|hei vaan|huomenta|päivää|iltaa|hello|hi|tervehdys|moikkelis|moikkis|jelou|jou|no moi|yo|moimoi)([\s!.,?]+(mitä kuuluu|mitä äijä|mitäs|miten menee|miten voit|kuinka voit|kuinka menee|miten päivä|mitä teet))?[\s!.,?]*$/i;
+    const GREETING_RX = /^(moi|moikka|hei|heipä|heippa|terve|morjens|moro|hei vaan|huomenta|päivää|iltaa|hello|hi|tervehdys|moikkelis|moikkis|jelou|jou|no moi|yo|moimoi)( hauku| robotti| botti)?([\s!.,?]+(mitä kuuluu|mitä sulle kuuluu|mitäs sulle kuuluu|mitä äijä|mitäs|mitäs kuuluu|miten menee|miten sulla menee|miten voit|kuinka voit|kuinka menee|miten päivä|mitä teet|miten päiväsi|mites menee|miten sul menee))?[\s!.,?]*$/i;
     // Myös pelkkä small-talk ilman tervehdyssanaa
-    const SMALLTALK_RX = /^(mitä kuuluu|miten menee|miten voit|kuinka voit|kuinka menee|mitäs kuuluu|mitä äijä|miten päiväsi|oletko kunnossa|jaksatko)[\s!.,?]*$/i;
+    const SMALLTALK_RX = /^(mitä kuuluu|mitä sulle kuuluu|mitäs sulle kuuluu|miten menee|miten sulla menee|miten voit|kuinka voit|kuinka menee|mitäs kuuluu|mitä äijä|miten päiväsi|oletko kunnossa|jaksatko|mites menee|miten sul menee|kuka olet|mikä olet)[\s!.,?]*$/i;
     // Erota vapaa teksti rakenteellisesta ikä/koko-liitteestä (jonka widget lisää).
     // Tervehdys tunnistetaan VAIN vapaasta tekstistä, JOS liite on pelkät oletukset
     // ("Kaikille ikäluokille/kokoluokille"). Jos käyttäjä valitsi oikean ikä/koon,
