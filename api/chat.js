@@ -82,10 +82,17 @@ function detectFollowUp(msg, sessionProducts) {
   const refersToShownProduct =
     /\b(se|sen|siin|sit|tuo|tuon|tuos|tää|tämä|tän|näist|niist|ne|nää|ensimmäinen|ekana|eka|toinen|tokana|kolmas|viimeinen|edellä|aiemmin|äsken|mainitsemasi|ehdottamasi|suosittelemasi|suosittelit|ehdotit|mainitsit)\b/.test(t) &&
     /sisält|onko siin|onko siell|mitä.{0,10}(lihaa|kalaa|proteiin|ainesos)|paljonko|kuinka paljon|montako|kerro|mikä.{0,10}(rasva|proteiin)|rasva|allergeeni|gluteeni|onko se|onko tuo|onko tää/.test(t);
-  if (refersToShownProduct) return true;
+  // VERTAILU jo näytetyistä: "kumpi näistä", "mikä näistä sopii", "paras näistä",
+  // "näistä uusista mikä" — vaikka mukana olisi "isolle"/"aktiiviselle", kyseessä on
+  // VERTAILU jo näytetyistä tuotteista, EI uusi haku. Vaaditaan viittaus "näistä/
+  // niistä/kumpi" + valinta-/vertailusana.
+  const isComparisonOfShown =
+    /\b(näist|niist|naist|niit|nuista|kumpi|kumman|kummal)\b/.test(t) &&
+    /kumpi|kumman|mikä|mitkä|paras|parempi|parhaiten|parhain|sopii|sopisi|suosittelisit|valitsisit|kannattaa|niistä mikä|näistä mikä/.test(t);
+  if (refersToShownProduct || isComparisonOfShown) return true;
 
   const hasNewContext =
-    /vuotias|\bkk\b|\bpentu|pennu|junior|seniori|senior|aikuinen|peten|haukkula|zooplus|allergi/.test(t) ||
+    /vuotias|\bkk\b|\bviikko|viikkoa|viikon ikä|\bpentu|pennu|penikka|penska|kuono|junior|seniori|senior|aikuinen|peten|haukkula|zooplus|allergi/.test(t) ||
     // Erikoisruokavaliot ja ominaisuudet -> uusi haku (näille on oikea suodatin)
     /hypoaller|nivel|iho-ongelm|iho ongelm|suolisto|herkk|viljaton|gluteeniton|vähärasva|korkearasva|painonhall|laihtu|lihon|ylipaino|aktiivi|metsäst|työkoira|energia|steriloi|kastroi|hammaskiv|kasvis|vegaani|vegan|lihaton|diabet|yksiproteiin|yhden proteiin/.test(t) ||
     // Koko ja rotu -> uusi haku
