@@ -256,7 +256,7 @@ export default async function handler(req, res) {
     // HÄTÄOIREET: jos KOSKAAN keskustelussa mainitaan henkeä uhkaava oire, EI näytetä
     // tuotteita lainkaan — ohjataan VÄLITTÖMÄSTI eläinlääkäriin. Tämä on ehdoton stop,
     // ei painostuskaan kumoa sitä.
-    const EMERGENCY_RX = /oksent.{0,15}ver|ver.{0,10}oksen|ver.{0,12}ulost|verta ulost|verist.{0,10}ulost|musta.{0,10}ulost|tervamain|kouristel|kouristus|kohtaus.{0,10}(ei lopu|jatkuu)|ei hengit|hengitysvaike|tajuton|tajunnan|lamaantun|halvaantun|myrkytys|söi myrkky|söi suklaa|söi ksylitol|ksylitoli|rotanmyrkky|pakkomyrkky|vatsalaukun kiertym|äkillinen.{0,15}(romahd|kaatu)|romahti|ei pääse ylös|veriripuli|verta virtsa/;
+    const EMERGENCY_RX = /oksent.{0,15}ver|ver.{0,10}oksen|ver.{0,12}ulost|verta ulost|verist.{0,10}ulost|musta.{0,10}ulost|tervamain|kouristel|kouristus|kohtaus.{0,10}(ei lopu|jatkuu)|ei hengit|hengitysvaike|tajuton|tajunnan|lamaantun|halvaantun|myrkytys|söi myrkky|söi suklaa|suklaa.{0,10}söi|söi ksylitol|ksylitoli|rotanmyrkky|pakkomyrkky|söi rusin|rusinoi.{0,8}söi|söi viinirypäl|viinirypäl.{0,8}söi|söi sipuli|sipuli.{0,8}söi|söi valkosipul|vatsalaukun kiertym|äkillinen.{0,15}(romahd|kaatu)|romahti|ei pääse ylös|veriripuli|verta virtsa/;
     // HÄTÄOIREET: tarkistetaan UUSIN viesti (jokainen hätäviesti sisältää oman
     // hätäsanansa, esim. "söi suklaata" / "söi ksylitolia"). EI koko historiaa,
     // jotta käyttäjä pääsee takaisin normaaliin kun hätä on ohi.
@@ -378,10 +378,6 @@ export default async function handler(req, res) {
         reply: '🏥 Tämä kuulostaa lääketieteelliseltä tilalta, joka vaatii eläinlääkärin arvion. En voi suositella ruokia tässä tilanteessa — väärä ruokavalio voi olla suoraan haitallinen tämän tyyppisissä sairauksissa.\n\nOta yhteyttä eläinlääkäriin, joka voi tarvittaessa määrätä erikoisruokavalion koirasi tilanteeseen sopivaksi.'
       });
     }
-    if (/suklaa|ksylitoli|rusinat|viinirypäleet|sipuli söi|valkosipuli söi/.test(latestNorm)) {
-      return res.status(200).json({ reply: '⚠️ **Mene välittömästi eläinlääkäriin.** Älä odota oireiden pahenemista.' });
-    }
-
     // ── 2. JATKOKYSYMYS / TUOTEKOHTAINEN KYSYMYS ─────────────────────────
     const sessionProducts = loadSession(conversationId) || getProductsFromHistory(messages, allProducts);
 
@@ -405,7 +401,10 @@ export default async function handler(req, res) {
       if (rest.length > 0) {
         // Muodosta lista suoraan session-tuotteista (ne ovat jo oikeita, suodatettuja)
         const lines = rest.slice(0, 10).map(p => {
-          let s = `**${p.nimi}**\nRasvataso: ${p.rasva || '-'}`;
+          let s = `**${p.nimi}**`;
+          if (p.proteiinit?.length) s += `\nProteiini: ${p.proteiinit.join(', ')}`;
+          if (p.hiilihydraatit?.length) s += `\nHiilihydraatit: ${p.hiilihydraatit.join(', ')}`;
+          s += `\nRasvataso: ${p.rasva || '-'}`;
           if (p.erikois?.length) s += `\nSopii: ${p.erikois.slice(0, 4).join(', ')}`;
           if (p.linkki) s += `\n🛒 [Osta](${p.linkki})`;
           return s;
@@ -610,9 +609,11 @@ export default async function handler(req, res) {
       }));
       if (conversationId) saveSession(conversationId, sessionData);
 
-      // Näkyvät tuotteet (hauku_data) = vain ensimmäiset, jotta widget ei näytä kaikkia
-      const visibleData = sessionData.slice(0, 5);
-      const hidden = '\n<hauku_data>' + JSON.stringify(visibleData) + '</hauku_data>';
+      // hauku_data sisältää KOKO listan (max 30) — widget poistaa sen näkyvistä, mutta
+      // se kulkee viestihistoriassa mukana. Näin "näytä loput" toimii myös silloin kun
+      // palvelimen Map-sessio katoaa (Vercel serverless vaihtaa instanssia). Näkyvät
+      // tuotekortit (5 kpl) tulevat yllä olevasta productList-tekstistä.
+      const hidden = '\n<hauku_data>' + JSON.stringify(sessionData) + '</hauku_data>';
       // Oire-varauma korvaa Geminin geneerisen intron (se on informatiivisempi)
       const leadIn = symptomNote ? symptomNote.trim() : (intro ? intro : '');
       return res.status(200).json({ reply: (leadIn ? leadIn + '\n\n' : '') + productList + fallbackNote + hidden });
