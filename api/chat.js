@@ -298,12 +298,19 @@ export default async function handler(req, res) {
     // HÄTÄOIREET: jos KOSKAAN keskustelussa mainitaan henkeä uhkaava oire, EI näytetä
     // tuotteita lainkaan — ohjataan VÄLITTÖMÄSTI eläinlääkäriin. Tämä on ehdoton stop,
     // ei painostuskaan kumoa sitä.
-    const EMERGENCY_RX = /oksent.{0,15}ver|ver.{0,10}oksen|ver.{0,12}ulost|verta ulost|verist.{0,10}ulost|musta.{0,10}ulost|tervamain|kouristel|kouristus|kohtaus.{0,10}(ei lopu|jatkuu)|ei hengit|hengitysvaike|tajuton|tajunnan|lamaantun|halvaantun|myrkytys|söi myrkky|söi suklaa|suklaa.{0,10}söi|söi ksylitol|ksylitoli|rotanmyrkky|pakkomyrkky|söi rusin|rusinoi.{0,8}söi|söi viinirypäl|viinirypäl.{0,8}söi|söi sipuli|sipuli.{0,8}söi|söi valkosipul|vatsalaukun kiertym|äkillinen.{0,15}(romahd|kaatu)|romahti|ei pääse ylös|veriripuli|verta virtsa/;
+    const EMERGENCY_RX = /oksent.{0,15}ver|ver.{0,10}oksen|ver.{0,12}ulost|verta ulost|verist.{0,10}ulost|musta.{0,10}ulost|tervamain|kouristel|kouristus|kohtaus.{0,10}(ei lopu|jatkuu)|ei hengit|hengitysvaike|tajuton|tajunnan|lamaantun|halvaantun|myrkytys|söi myrkky|rotanmyrkky|pakkomyrkky|vatsalaukun kiertym|äkillinen.{0,15}(romahd|kaatu)|romahti|ei pääse ylös|veriripuli|verta virtsa/;
+    // Myrkylliset ruoka-aineet: tunnistetaan ruoka-aineen vartalo + syömisverbi
+    // LÄHELLÄ toisiaan (kummassakin järjestyksessä), jotta kirjoitusvirheet ("söi
+    // suklata") ja sanajärjestys ("suklaapala jäi koiralle") eivät livahda ohi.
+    // sukla=suklaa, ksylit=ksylitoli, rusin=rusina, viiniryp=viinirypäle, sipul=sipuli.
+    const TOXIC_FOOD_RX = /(sukla|ksylit|rusin|viiniryp|rypäle|\bsipul|valkosipul|makeutusain|ksylo)/;
+    const ATE_RX = /(söi|syönyt|söikö|syö|nappas|nappasi|sai suuhun|haukkas|ahmi|join|joi|nieli|nielaisi|söivät|maistoi|läträs|sotki suuhun|pääsi käsiksi|varasti pöydält|nappasi pöydält|jäi koiralle|antoi vahingossa)/;
     // HÄTÄOIREET: tarkistetaan UUSIN viesti (jokainen hätäviesti sisältää oman
     // hätäsanansa, esim. "söi suklaata" / "söi ksylitolia"). EI koko historiaa,
     // jotta käyttäjä pääsee takaisin normaaliin kun hätä on ohi.
+    const toxicFood = TOXIC_FOOD_RX.test(latestNorm) && ATE_RX.test(latestNorm);
     const resolvedNow = /nyt kunnossa|on kunnossa|jo kunnossa|meni ohi|selvis|toipu|parani|kaikki hyvin|ei enää|vointi paran|pärjää|hoidettu|kävimme.{0,15}(lääkär|klinika)|oltiin.{0,15}lääkär/.test(latestNorm);
-    if (EMERGENCY_RX.test(latestNorm) && !resolvedNow) {
+    if ((EMERGENCY_RX.test(latestNorm) || toxicFood) && !resolvedNow) {
       return res.status(200).json({
         reply: '🚨 **Ota välittömästi yhteyttä eläinlääkäriin tai päivystykseen.** Kuvailemasi tilanne voi olla hengenvaarallinen, eikä sitä hoideta ruokavaliolla. Älä viivyttele — soita lähimpään eläinlääkäripäivystykseen heti.\n\nEn voi tässä tilanteessa suositella ruokia. Koirasi terveys on nyt tärkeintä.'
       });
