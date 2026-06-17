@@ -89,7 +89,15 @@ function detectFollowUp(msg, sessionProducts) {
   const isComparisonOfShown =
     /\b(näist|niist|naist|niit|nuista|kumpi|kumman|kummal)\b/.test(t) &&
     /kumpi|kumman|mikä|mitkä|paras|parempi|parhaiten|parhain|sopii|sopisi|suosittelisit|valitsisit|kannattaa|niistä mikä|näistä mikä/.test(t);
-  if (refersToShownProduct || isComparisonOfShown) return true;
+  // PÄÄTELMÄ NÄYTETYSTÄ TUOTTEESTA: käyttäjä toteaa johtopäätöksen juuri
+  // näytetystä tuotteesta ("eli se ei sovi koiralleni", "tää ei käy koska allergia",
+  // "toi on hyvä", "no ei sitten sovi"). Tämä on JATKOKYSYMYS (botti vahvistaa
+  // päätelmän ja voi tarjota vaihtoehtoja) — EI uusi haku — vaikka mukana olisi
+  // "allerginen". Vaaditaan viittaus näytettyyn (se/tää/tuo/toi) + päätelmäsana.
+  const isReflectionOnShown =
+    /\b(se|sen|sit|tuo|tuon|toi|toin|tää|tämä|tän)\b/.test(t) &&
+    /ei sovi|ei käy|ei kelpaa|ei siis sovi|sopii.{0,8}koiral|on hyvä|on huono|kuulostaa hyvä|vaikuttaa hyvä|kelpaa|ei siis käy|tää on|toi on|se on hyvä|se on huono|hyvä valinta|huono valinta|ei oo hyvä|onko hyvä valinta/.test(t);
+  if (refersToShownProduct || isComparisonOfShown || isReflectionOnShown) return true;
 
   const hasNewContext =
     /vuotias|\bkk\b|\bviikko|viikkoa|viikon ikä|\bpentu|pennu|penikka|penska|kuono|junior|seniori|senior|aikuinen|peten|haukkula|zooplus|allergi/.test(t) ||
@@ -517,6 +525,7 @@ export default async function handler(req, res) {
         '\n- Vastaa LYHYESTI, 1-4 lauseella PROOSANA. ÄLÄ toista tuotekortteja (ei "Rasvataso:", "Sopii:", "🛒 Osta" -rivejä) — ne näkyvät käyttäjälle JO edellisessä viestissä.' +
         '\n- ÄLÄ kirjoita ostolinkkejä uudelleen tässä vastauksessa.' +
         '\n- Jos käyttäjä sanoo aiemman valinnan olleen väärä (esim. tuote sisältää allergeenin, väärä koko/ikäluokka) — MYÖNNÄ virhe lyhyesti ja sano että haet uudet vaihtoehdot; järjestelmä tekee uuden haun automaattisesti. ÄLÄ viittaa mihinkään painikkeeseen.' +
+        '\n- Jos käyttäjä TOTEAA johtopäätöksen näytetystä tuotteesta (esim. "eli se ei sovi koiralleni jos se on allerginen siipikarjalle") — VAHVISTA päätelmä lyhyesti ja oikein ("Aivan oikein — tuote sisältää siipikarjaa, joten se ei sovi siipikarja-allergiselle koiralle") ja KYSY haluaako käyttäjä että etsit sopivia vaihtoehtoja (älä vielä listaa tuotteita, vaan tarjoa hakua). Jos käyttäjä toteaa tuotteen hyväksi/sopivaksi, vahvista myönteisesti ja kerro mistä sen voi ostaa.' +
         '\n- Jos käyttäjä pyytää "muita/toisia/eri vaihtoehtoja" tai tarkentaa hakuaan (esim. "haluan suurille pennuille suunnitellun"), ÄLÄ keksi yksittäisiä tuotteita itse äläkä viittaa mihinkään "hakupainikkeeseen" (sellaista EI ole). Sano lyhyesti että haet uudet vaihtoehdot — järjestelmä tekee uuden haun automaattisesti.';
 
       const reply = await callGemini(
