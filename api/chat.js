@@ -80,8 +80,8 @@ function detectFollowUp(msg, sessionProducts) {
   // "sisältääkö se parsakaalia, koira on sille allerginen"). Tämä viittaussignaali
   // VOITTAA hasNewContextin, jotta konteksti ei karkaa väärään hakuun.
   const refersToShownProduct =
-    /\b(se|sen|siin|sit|tuo|tuon|tuos|tää|tämä|tän|näist|niist|ne|nää|ensimmäinen|ekana|eka|toinen|tokana|kolmas|viimeinen|edellä|aiemmin|äsken|mainitsemasi|ehdottamasi|suosittelemasi|suosittelit|ehdotit|mainitsit)\b/.test(t) &&
-    /sisält|onko siin|onko siell|mitä.{0,10}(lihaa|kalaa|proteiin|ainesos)|paljonko|kuinka paljon|montako|kerro|mikä.{0,10}(rasva|proteiin)|rasva|allergeeni|gluteeni|onko se|onko tuo|onko tää/.test(t);
+    /\b(se|sen|siin|sitä|tuo|tuon|tuos|toi|toin|tost|tosta|tää|tämä|tän|tätä|näist|niist|ne|nää|ensimmäinen|ekana|eka|ekaa|toinen|tokana|kolmas|kolmos|neljäs|viides|viimeinen|edellä|aiemmin|äsken|mainitsemasi|ehdottamasi|suosittelemasi|suosittelit|ehdotit|mainitsit|ylin|alin)\b/.test(t) &&
+    /sisält|onko siin|onko siell|mitä.{0,10}(lihaa|kalaa|proteiin|ainesos)|paljonko|kuinka paljon|montako|kerro|mikä.{0,10}(rasva|proteiin)|rasva|allergeeni|gluteeni|onko se|onko tuo|onko tää|onko toi|sopii|sopiiks|sopiiko|sopisi|käy meil|käykö|passaa|passaako|kelpaa|kelpaako|toimii|toimiiko|onko hyvä|onko ok|hyvä koir|riittääk/.test(t);
   // VERTAILU jo näytetyistä: "kumpi näistä", "mikä näistä sopii", "paras näistä",
   // "näistä uusista mikä" — vaikka mukana olisi "isolle"/"aktiiviselle", kyseessä on
   // VERTAILU jo näytetyistä tuotteista, EI uusi haku. Vaaditaan viittaus "näistä/
@@ -95,7 +95,7 @@ function detectFollowUp(msg, sessionProducts) {
   // päätelmän ja voi tarjota vaihtoehtoja) — EI uusi haku — vaikka mukana olisi
   // "allerginen". Vaaditaan viittaus näytettyyn (se/tää/tuo/toi) + päätelmäsana.
   const isReflectionOnShown =
-    /\b(se|sen|sit|tuo|tuon|toi|toin|tää|tämä|tän)\b/.test(t) &&
+    /\b(se|sen|tuo|tuon|toi|toin|tää|tämä|tän)\b/.test(t) &&
     /ei sovi|ei käy|ei kelpaa|ei siis sovi|sopii.{0,8}koiral|on hyvä|on huono|kuulostaa hyvä|vaikuttaa hyvä|kelpaa|ei siis käy|tää on|toi on|se on hyvä|se on huono|hyvä valinta|huono valinta|ei oo hyvä|onko hyvä valinta/.test(t);
   if (refersToShownProduct || isComparisonOfShown || isReflectionOnShown) return true;
 
