@@ -555,6 +555,67 @@ export default async function handler(req, res) {
       return res.status(200).json({ reply: reply || 'Yritä uudelleen.' });
     }
 
+    // ── 3a. BRÄNDIHAKU ("montako ProBoosterin tuotetta", "mitä Acanoja") ──
+    // Käyttäjä kysyy tietyn MERKIN tuotteita. Haetaan tuotenimen alusta.
+    // Tunnetut brändit (tuotenimen ensimmäinen sana, normalisoituna).
+    const BRANDS = ['acana','advance','almo','alpha','alvar','amanova','applaws','belcando','beneful','bewi','bonzo','booster','bosch','bozita','brekkies','briantos','brit','buddy','burns','butchers','calibra','canagan','carnilove','cavom','concept','country','crave','dagsmark','dibaq','dingo','dolina','dolina noteci','edgard','edgard cooper','era','era millennium','escapure','eukanuba','exclusion','farmina','fitactive','fitmin','fokker','forza10','grandorf','golden eagle','golden','granatapet','greenwoods','happy dog','happy','hau hau','hauhau','hills','iams','jahti','josera','josidog','libra','lilys','lukullus','lupo','macs','magnussons','markus','mera','monge','monster','natura','natural trainer','natural','natures','nova','nutrivet','opti','optimanova','perfect','primadog','primal','probooster','profine','prolife','purenatural','purizon','purina','quattro','rinti','racinel','rafi','riverwood','rocco','rosies','rovio','royal canin','royal','smaak','saaga','sams field','sams','simpsons','smolke','specific','taste of the wild','taste','trainer','tropidog','ultima','valio','virbac','wolf of wilderness','wolf','wow','wiejska','ydolo','yarrah','ziwi','dagsmark','quattro dog'];
+    // Käyttäjä viittaa merkkiin jos kysyy "merkki/brändi/valmistaja" TAI mainitsee
+    // tunnetun brändinimen yhdistettynä määrä-/listauskysymykseen.
+    const asksBrandCount = /montako|kuinka monta|paljonko.*(tuott|ruok|merk)|mitä.*(tuott|ruok|vaihto).*(merk|brändi|brandi|valmistaj)|merkin tuott|merkkisi|brändin tuott|montako.*merk|montako.*ruok|kuinka mont.*ruok|mitä.*(merkk|brändi).*(on|löyty)|listaa.*merk|kaikki.*merk|löytyykö.*merk/.test(latestNorm);
+    // Etsi mainittu brändi (pisin osuma ensin, jotta "royal canin" voittaa "royal")
+    let foundBrand = null;
+    const sortedBrands = [...BRANDS].sort((a, b) => b.length - a.length);
+    for (const b of sortedBrands) {
+      // normalisoitu vertailu: poista välimerkit molemmista
+      const bNorm = b.replace(/[^a-zäöå0-9 ]/g, '');
+      if (latestNorm.includes(bNorm)) { foundBrand = b; break; }
+    }
+    // Brändihaku laukeaa jos: (merkkikysymys + brändi) TAI (brändi + määrä/listaussana)
+    const brandCountQuery = foundBrand && (asksBrandCount || /montako|kuinka monta|paljonko|listaa|kaikki|mitä.*(on|löyty|teil)|mitkä|näytä|onko teil|löytyykö|onko teillä|teillä.*\b(merk|ruok|tuott)|saatavilla|valikoimas/.test(latestNorm));
+    if (brandCountQuery && !sessionHasProducts) {
+      // Hae tuotteet joiden nimi alkaa brändillä (tai sisältää sen alussa)
+      const bNorm = foundBrand.replace(/[^a-zäöå0-9 ]/g, '');
+      const brandMatches = allProducts.filter(p => {
+        const nimomNorm = (p.nimi || '').toLowerCase().replace(/[^a-zäöå0-9 ]/g, '');
+        return nimomNorm.startsWith(bNorm) || nimomNorm.includes(' ' + bNorm) || nimomNorm.includes(bNorm);
+      });
+      // Tarkennetaan: vaadi että brändi on nimen ALUSSA (ettei "Royal" osu sattumalta keskelle)
+      const strict = allProducts.filter(p => {
+        const nimomNorm = (p.nimi || '').toLowerCase().replace(/[^a-zäöå0-9 ]/g, '');
+        return nimomNorm.startsWith(bNorm);
+      });
+      const finalMatches = strict.length > 0 ? strict : brandMatches;
+      const brandLabel = foundBrand.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+      if (finalMatches.length > 0) {
+        const count = finalMatches.length;
+        let reply = `Valikoimastamme löytyy ${count} ${brandLabel}-tuote${count === 1 ? '' : 'tta'}`;
+        // Jos kysyttiin montako, kerro määrä ja listaa nimet; muuten listaa kortteina
+        const justCount = /montako|kuinka monta|paljonko|lukumäär/.test(latestNorm);
+        if (justCount) {
+          reply += ':\n\n' + finalMatches.slice(0, 20).map(p => `• ${p.nimi}`).join('\n');
+          if (count > 20) reply += `\n\n…ja ${count - 20} muuta.`;
+          reply += '\n\nHaluatko että kerron jostakin näistä tarkemmin tai etsin koirallesi sopivimman?';
+          const sessionData = finalMatches.slice(0, 30).map(p => ({
+            nimi: p.nimi, rasva: p.rasva, erikois: p.erikois?.slice(0, 4), linkki: p.linkki, proteiinit: p.proteiinit, hiilihydraatit: p.hiilihydraatit,
+          }));
+          saveSession(conversationId, sessionData);
+          return res.status(200).json({ reply: reply + '\n<hauku_data>' + JSON.stringify(sessionData) + '</hauku_data>' });
+        } else {
+          // Näytä tuotekortteina
+          const list = buildDirectProductResponse(finalMatches, {});
+          const sessionData = finalMatches.slice(0, 30).map(p => ({
+            nimi: p.nimi, rasva: p.rasva, erikois: p.erikois?.slice(0, 4), linkki: p.linkki, proteiinit: p.proteiinit, hiilihydraatit: p.hiilihydraatit,
+          }));
+          saveSession(conversationId, sessionData);
+          return res.status(200).json({ reply: list + '\n<hauku_data>' + JSON.stringify(sessionData) + '</hauku_data>' });
+        }
+      } else {
+        return res.status(200).json({
+          reply: `Valitettavasti en löytänyt ${brandLabel}-merkkisiä tuotteita valikoimastamme tällä haulla. Tarkistathan merkin kirjoitusasun, tai kerro koirastasi (ikä, koko, toiveet) niin etsin sopivia vaihtoehtoja muista merkeistä.`
+        });
+      }
+    }
+
     // ── 3b. AINESOSAHAKU ("onko ruokia jotka sisältävät X") ──────────────
     // Kun käyttäjä kysyy tiettyä ainesosaa SISÄLTÄVIÄ ruokia (ei allergiaa eli
     // poissulkua, vaan nimenomaan "sisältää"), haetaan suoraan ainesosakentästä.
