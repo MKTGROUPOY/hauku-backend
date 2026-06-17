@@ -216,7 +216,7 @@ export default async function handler(req, res) {
     // opiskelija budjettisyistä, EMME saa suositella tuotteita (emme voi arvioida
     // hintaa emmekä halua antaa harhaanjohtavaa "halpa"-suositusta). Ohjataan
     // asiakas vertailemaan hintoja itse kaupasta.
-    const PRICE_RX = /halpa|halvin|halvempi|halvemp|edullis|edullisin|hinta|hinnal|hinnat|maksaa|kallis|kallein|budjet|tarjous|alennus|alennuks|säästä|saasta|rahaton|vähävarainen|vahavarainen|köyh|koyh|ei.{0,10}varaa|pienell.{0,10}budjet/.test(latestNorm);
+    const PRICE_RX = /halpa|halvin|halvemp|halvemm|halval|edullis|edullisin|hinta|hinnal|hinnat|hintaan|maksaa|paljonko.{0,10}(maksaa|hinta|euro)|kallis|kallein|kalliimp|budjet|tarjous|tarjouks|alennus|alennuks|säästä|saasta|rahaton|vähävarainen|vahavarainen|köyh|koyh|ei.{0,10}varaa|pienell.{0,10}budjet|euroa|paljon se on|montako euro/.test(latestNorm);
     if (PRICE_RX) {
       return res.status(200).json({
         reply: 'En valitettavasti pysty vertailemaan tuotteiden hintoja — tietokannassamme ei ole hintatietoja, joten en voi suositella ruokia hinnan perusteella. Hinnat näet suoraan kauppojen verkkosivuilta (esim. Peten Koiratarvike, Koiratarvike Haukkula), ja sieltä voit vertailla edullisimmat vaihtoehdot.\n\nVoin kuitenkin auttaa löytämään koirallesi ravitsemuksellisesti sopivia ruokia iän, koon ja mahdollisten allergioiden perusteella — kerro koirastasi, niin etsin sopivia vaihtoehtoja!'
@@ -239,7 +239,10 @@ export default async function handler(req, res) {
     // -> ystävällinen lopetus, EI tuotehakua.
     const THANKS_RX = /^(kiitos|kiitti|kitos|thanks|thank you|kiitoksia|ok kiitos|okei kiitos|selvä kiitos|mahtavaa kiitos|hienoa kiitos|paljon kiitoksia|kivaa|super|loistavaa|täydellistä|hyvä juttu)\b/.test(latestNorm.trim());
     const helpfulAck = /hyödyllist|hyodyllist|auttoi|oli apua|oli kiva|just näin|juuri näin|hyvä tietää|selvä homma/.test(latestNorm);
-    if ((THANKS_RX || helpfulAck) && !hasAnySearchSignal) {
+    // Kiitos-haara EI saa laueta jos viestissä on KYSYMYS perässä (esim. "ok kiitos.
+    // viel yks: voiks koiralle antaa luita?"). Silloin kysymykseen pitää vastata.
+    const hasTrailingQuestion = /\?|voiks|voiko|voinko|saako|saanko|saisi|onko|onks|mitä|mitkä|miten|kuinka|paljonko|montako|kannattaa|kannattaako|pitääkö|tarvii|tarviiko|millainen|minkä|kerro|neuvo|auta/.test(latestNorm);
+    if ((THANKS_RX || helpfulAck) && !hasAnySearchSignal && !hasTrailingQuestion) {
       return res.status(200).json({
         reply: 'Ilo auttaa! 🐾 Jos tulee lisää kysyttävää koirasi ruokavaliosta, kysy rohkeasti. Mukavaa päivänjatkoa sinulle ja koirallesi!'
       });
@@ -578,10 +581,14 @@ export default async function handler(req, res) {
     const ageIsDefault  = !pre.age  || pre.age  === 'Kaikille ikäluokille';
     const sizeIsDefault = !pre.size || pre.size === 'Kaikille kokoluokille';
 
+    // HUOM: kun pudotusvalikko on OLETUKSESSA ("Kaikille ikäluokille/kokoluokille"),
+    // sitä EI saa laskea hakukriteeriksi — muuten JOKA viesti (myös "voiks antaa
+    // luita?") laukaisisi tuotehaun. Oletusarvo -> null. Vain eksplisiittinen valinta
+    // TAI vapaasta tekstistä poimittu ikä/koko lasketaan kriteeriksi.
     const filters = {
       ...extracted,
-      age:   ageIsDefault  ? (extracted.age  || pre.age  || null) : pre.age,
-      size:  sizeIsDefault ? (extracted.size || pre.size || null) : pre.size,
+      age:   ageIsDefault  ? (extracted.age  || null) : pre.age,
+      size:  sizeIsDefault ? (extracted.size || null) : pre.size,
       store: pre.store || extracted.store,
       excl:  (pre.excl?.length ? pre.excl : null) || extracted.excl,
       specialDiets: [...new Set([...(extracted.specialDiets || []), ...symptomDiets])],
