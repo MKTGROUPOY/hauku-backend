@@ -272,6 +272,17 @@ export default async function handler(req, res) {
       });
     }
 
+    // ── 0bx. "ALLERGINEN KAIKELLE" — ei voi suodattaa ────────────────────
+    // Jos käyttäjä sanoo koiran olevan allerginen "kaikelle/kaikkeen", emme voi
+    // poimia yksittäistä allergeenia emmekä suodattaa luotettavasti. Pyydetään
+    // tarkennusta — EI näytetä satunnaisia tuotteita (jotka voivat sisältää juuri
+    // sen mihin koira on allerginen).
+    if (/allergi/.test(latestNorm) && /kaikelle|kaikkeen|kaikki|ihan kaikel|kaikenlaisel|joka ikiselle|melkein kaikel/.test(latestNorm)) {
+      return res.status(200).json({
+        reply: 'Ymmärrän — laaja-alaiset allergiat ovat haastavia. En kuitenkaan voi suositella ruokaa "kaikelle allergiselle" koiralle näkemättä, mihin se tarkalleen reagoi, koska väärä valinta voisi pahentaa oireita.\n\nKerro mihin yksittäisiin raaka-aineisiin koirasi reagoi (esim. kana, nauta, vilja), niin etsin ne poissulkevia vaihtoehtoja. Jos allergiat ovat vakavat tai laajat, eläinlääkäri voi auttaa eliminaatiodieetillä — meiltä löytyy myös eliminaatiodieettiin ja hypoallergeenisille koirille suunniteltuja ruokia, joista voin näyttää vaihtoehtoja.'
+      });
+    }
+
     // ── 0c. "PARAS / ENITEN" -TYYPPISET ARVOTTAVAT KYSYMYKSET ────────────
     // "Mikä on paras penturuoka", "mikä sisältää eniten lihaa" — emme voi
     // objektiivisesti väittää mitään "parhaaksi" emmekä vertailla määriä
@@ -624,7 +635,20 @@ export default async function handler(req, res) {
       filters.monoProtein || filters.singleCarb || filters.fatLevel
     );
 
-    if (hasFilters) {
+    // NEUVONTAKYSYMYS vs TUOTEHAKU: jos käyttäjä KYSYY neuvoa ("voiks vanha koira
+    // syödä penturuokaa?", "kannattaako vaihtaa aikuisten ruokaan?", "mitä eroa...",
+    // "voiko koira syödä X"), kyseessä on tietokysymys — EI tuotehaku — VAIKKA viesti
+    // sisältäisi ikä-/ruokasanoja. Tällöin ohjataan yleisneuvontaan (Gemini vastaa).
+    // Poikkeus: jos käyttäjä SELVÄSTI pyytää tuotteita (anna/suosittele/etsi/näytä/
+    // haluan ruoan), tehdään haku vaikka kysymyssana olisi mukana.
+    const isAdviceQuestion =
+      /voiks|voiko|voinko|voisiko|saako|saanko|saisiko|kannattaako|kannattaa vaihtaa|pitääkö|tarviiko|tarvitseeko|vaihtaako|vaihdanko|vaihdetaanko|onko hyvä|onko ok|onko järkev|onko turvallis|onko vaarallis|saako antaa|voiko antaa|mitä eroa|mitä mieltä|kuinka usein|kuinka paljon|miten usein|miten paljon|kuinka monta|montako kertaa|kuinka kauan|miten siirry|miten vaihd|kuinka siirry|onko normaali|johtuuko|tarviiks|vaihtaako penturuo|syödä penturuo|syödä aikuisten/.test(latestNorm);
+    const explicitProductRequest =
+      /anna |annatko|suosittele|suosita|ehdota|etsi |etsitkö|hae |haetko|näytä|listaa|haluan ruo|haluan ruu|haluaisin ruo|tarvitsen ruo|tarviin ruo|etsin ruo|etsitään|kerro sopiv/.test(latestNorm);
+
+    if (isAdviceQuestion && !explicitProductRequest) {
+      // tyhjennetään hakuehto -> ohjataan yleisneuvontaan alla
+    } else if (hasFilters) {
       let matched = filterProducts(allProducts, filters);
       let droppedSpecialDiets = false;
 
