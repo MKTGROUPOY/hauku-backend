@@ -276,17 +276,21 @@ export default async function handler(req, res) {
     // "Mikä on paras penturuoka", "mikä sisältää eniten lihaa" — emme voi
     // objektiivisesti väittää mitään "parhaaksi" emmekä vertailla määriä
     // luotettavasti. Ohjataan tarkentamaan tarpeet konkreettisesti.
-    const isSuperlative = /\b(paras|parhain|paras mahdollinen|laadukkain|terveellisin|suositelluin|ykkös)\b/.test(latestNorm) ||
-                          /eniten|vähiten|korkein|matalin/.test(latestNorm);
+    const isQuantitySuperlative = /eniten|vähiten|korkein|matalin|suurin|pienin|viljattomin|lihaisin|proteiinipitoisin/.test(latestNorm);
+    const isSuperlative = /\b(paras|parhain|paras mahdollinen|laadukkain|terveellisin|suositelluin|ykkös)\b/.test(latestNorm) || isQuantitySuperlative;
     // "paras X" ilman MUITA rajauksia (allergia, tarkka ikä vuosina, erikoisruokavalio)
     // -> ohjaa tarkentamaan. Pelkkä ikäluokka ("paras penturuoka") EI riitä, koska
     // emme voi nimetä yhtä "parasta" — mutta jos mukana on konkreettisia rajauksia,
     // annetaan haun edetä.
     const hasConcreteCriteria = /allergi|vuotias|\bkk\b|viljaton|vähärasva|korkearasva|nivel|iho|suolisto|herkk|aktiivi|painonhall|hypoaller|\bkana\b|\bnauta\b|lammas|kala|lohi|possu|pien|suur|iso|keskikoko|pentu|junior|senior|metsäst/.test(latestNorm);
     if (isSuperlative && !hasConcreteCriteria) {
-      return res.status(200).json({
-        reply: 'Hyvä kysymys! "Parasta" ruokaa ei ole yksiselitteisesti — sopivin riippuu koirasi iästä, koosta, mahdollisista allergioista ja erityistarpeista. Kerro näistä, niin suosittelen juuri sinun koirallesi sopivia laadukkaita vaihtoehtoja. Esimerkiksi: "iso 3kk pentu, ei allergioita" tai "aktiivinen aikuinen, viljaton".'
-      });
+      // Määrävertailu ("eniten lihaa", "viljattomin") — emme voi luotettavasti
+      // järjestää tuotteita määrän mukaan, koska tarkkoja prosentteja ei ole
+      // jokaiselle tuotteelle. Kerrotaan tämä rehellisesti.
+      const reply = isQuantitySuperlative
+        ? 'En pysty luotettavasti laittamaan tuotteita paremmuusjärjestykseen määrän mukaan (esim. eniten lihaa) — tarkkoja pitoisuuksia ei ole vertailukelpoisesti kaikille tuotteille. Sen sijaan voin etsiä koirallesi sopivia ruokia muiden kriteerien perusteella: kerro ikä, koko ja mahdolliset toiveet (esim. runsasproteiininen, viljaton), niin haen vaihtoehtoja!'
+        : 'Hyvä kysymys! "Parasta" ruokaa ei ole yksiselitteisesti — sopivin riippuu koirasi iästä, koosta, mahdollisista allergioista ja erityistarpeista. Kerro näistä, niin suosittelen juuri sinun koirallesi sopivia laadukkaita vaihtoehtoja. Esimerkiksi: "iso 3kk pentu, ei allergioita" tai "aktiivinen aikuinen, viljaton".';
+      return res.status(200).json({ reply });
     }
 
     // ── 1. TURVALLISUUSTARKISTUKSET ──────────────────────────────────────
@@ -529,15 +533,27 @@ export default async function handler(req, res) {
     // poissulkua, vaan nimenomaan "sisältää"), haetaan suoraan ainesosakentästä.
     // Tämä estää hallusinaation: ennen Gemini "keksi" tuotteen joka ei edes ollut
     // valikoimassa. Nyt haetaan oikeasti datasta.
-    const wantsIngredient = /sisält(ää|yy|ävi)|joissa on|jossa on|löytyykö.*sisält|onko.*joissa|jotka sisält/.test(latestNorm);
+    const wantsIngredient = /sisält|joissa on|jossa on|löytyykö.*sisält|onko.*joissa|jotka sisält|listaa|luettele|näytä kaikki|kaikki.{0,15}(sisält|joissa)/.test(latestNorm);
     if (wantsIngredient && !sessionHasProducts) {
       // Poimi mahdollinen ainesosa. HUOM: JS:n \w EI matchaa ä/ö, joten käytetään
-      // eksplisiittistä suomalaista merkkiluokkaa [a-zäöå]+.
+      // eksplisiittistä suomalaista merkkiluokkaa [a-zäöå]+. Tunnistetaan MOLEMMAT
+      // sanajärjestykset: "sisältää X" JA "X sisältävät/sisältäviä" (esim. "listaa
+      // kaikki ankkaa sisältävät ruoat").
       const W = '[a-zäöå]+';
-      const m = latestNorm.match(new RegExp(`sisält${W}?\\s+(${W})|joissa on\\s+(${W})|jossa on\\s+(${W})`));
-      let term = m ? (m[1] || m[2] || m[3] || '').trim() : '';
+      const stopwords = /^(ruoki|ruoka|ruoat|ruokaa|tuott|tuote|tuotteet|niit|sit|tät|kaikki|joka|jotka|mitä|jossa|joissa|kaikkia|listaa|luettele|näytä|vain|sellais)/;
+      let term = '';
+      // 1) "sisältää/sisältyy X"
+      let m = latestNorm.match(new RegExp(`sisält${W}?\\s+(${W})`));
+      if (m && m[1] && !stopwords.test(m[1])) term = m[1];
+      // 2) "joissa/jossa on X"
+      if (!term) { m = latestNorm.match(new RegExp(`j[o]ssa on\\s+(${W})`)); if (m && m[1] && !stopwords.test(m[1])) term = m[1]; }
+      // 3) "X sisältäv..." (ainesosa ENNEN sisältää-sanaa)
+      if (!term) { m = latestNorm.match(new RegExp(`(${W})\\s+sisältäv`)); if (m && m[1] && !stopwords.test(m[1])) term = m[1]; }
+      // 4) "listaa/luettele kaikki X ..." (X heti määresanan jälkeen)
+      if (!term) { m = latestNorm.match(new RegExp(`(?:listaa|luettele|näytä)\\s+(?:kaikki\\s+)?(${W})`)); if (m && m[1] && !stopwords.test(m[1])) term = m[1]; }
+      term = (term || '').trim();
       // Karsi yleiset täytesanat
-      if (term && term.length >= 3 && !/ruoki|ruoka|tuott|niit|sit|tät/.test(term)) {
+      if (term && term.length >= 3 && !stopwords.test(term)) {
         // Suomen taivutus: pudota loppu-vokaali/pääte ("silliä"->"silli", "lohta"->"loh")
         const stem = term.replace(/(aa|ää|ta|tä|lle|lla|llä|ssa|ssä|a|ä|n)$/u, '');
         const matches = allProducts.filter(p =>
@@ -631,19 +647,6 @@ export default async function handler(req, res) {
         ? '\n\n💡 Huom: kuvailemasi oire voi johtua monesta syystä eikä välttämättä ruoasta. Jos oire on pitkittynyt tai voimakas, kannattaa konsultoida eläinlääkäriä. Ruokavalio voi silti auttaa — alla vaihtoehtoja, jotka usein sopivat herkille tai oireileville koirille:'
         : '';
 
-      // Gemini kirjoittaa lyhyen intron
-      let intro = '';
-      try {
-        const introRes = await callGemini(
-          'Olet Hauku. Kirjoita YKSI lyhyt lause suomeksi löydetyistä tuotteista. ÄLÄ aloita "Hienoa" tai ylistyssanoilla. ÄLÄ mainitse tuotenimiä. Palauta VAIN JSON: {"intro":"lause"}',
-          [{ role: 'user', parts: [{ text: `${matched.length} sopivaa tuotetta löytyi.` }] }],
-          apiKey, 80
-        );
-        const clean = introRes.replace(/```json|```/g, '').trim();
-        const parsed = JSON.parse(clean);
-        if (parsed.intro?.length > 5) intro = parsed.intro;
-      } catch {}
-
       // Tallenna sessio: KOKO suodatettu lista (max 30) jotta "näytä loput" voi
       // näyttää oikeat piilossa olevat tuotteet ilman uutta hakua/hallusinaatiota.
       const sessionData = matched.slice(0, 30).map(p => ({
@@ -656,8 +659,10 @@ export default async function handler(req, res) {
       // palvelimen Map-sessio katoaa (Vercel serverless vaihtaa instanssia). Näkyvät
       // tuotekortit (5 kpl) tulevat yllä olevasta productList-tekstistä.
       const hidden = '\n<hauku_data>' + JSON.stringify(sessionData) + '</hauku_data>';
-      // Oire-varauma korvaa Geminin geneerisen intron (se on informatiivisempi)
-      const leadIn = symptomNote ? symptomNote.trim() : (intro ? intro : '');
+      // EI erillistä Gemini-introa: productList alkaa jo "Löysin X sopivaa tuotetta".
+      // Aiemmin Gemini-intro tuotti TOISEN määrärivin ("Löydettyjä tuotteita on X
+      // kappaletta") joka näkyi päällekkäisenä. Vain oire-varauma näytetään alkuun.
+      const leadIn = symptomNote ? symptomNote.trim() : '';
       return res.status(200).json({ reply: (leadIn ? leadIn + '\n\n' : '') + productList + fallbackNote + hidden });
     }
 
