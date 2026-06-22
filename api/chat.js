@@ -537,9 +537,19 @@ export default async function handler(req, res) {
     );
     if (brandIntent) {
       const bNorm = foundBrand.replace(/[^a-zäöå0-9 ]/g, '');
-      const strict = allProducts.filter(p => (p.nimi || '').toLowerCase().replace(/[^a-zäöå0-9 ]/g, '').startsWith(bNorm));
-      const loose = allProducts.filter(p => (p.nimi || '').toLowerCase().replace(/[^a-zäöå0-9 ]/g, '').includes(bNorm));
-      const finalMatches = strict.length > 0 ? strict : loose;
+      // Reseptiruoat (Prescription/Veterinary Diet) eivät kuulu normaaliin
+      // suositteluun — suljetaan pois myös brändihausta, jotta luku on sama kuin
+      // tavallisessa haussa eikä asiakkaalle ehdoteta reseptiruokia.
+      const VET = /prescription diet|presciption diet|veterinary diet|veterinary diets|veterinary canine|veterinary hpm/i;
+      const startsB = p => (p.nimi || '').toLowerCase().replace(/[^a-zäöå0-9 ]/g, '').startsWith(bNorm);
+      const inclB = p => (p.nimi || '').toLowerCase().replace(/[^a-zäöå0-9 ]/g, '').includes(bNorm);
+      const strict = allProducts.filter(p => startsB(p) && !VET.test(p.nimi || ''));
+      const loose = allProducts.filter(p => inclB(p) && !VET.test(p.nimi || ''));
+      const base = strict.length > 0 ? strict : loose;
+      // Näytetään ja lasketaan vain ostettavat (joilla ostolinkki), jotta luku on
+      // sama kuin tuotekorteissa eikä asiakkaalle luvata ostamattomia tuotteita.
+      const withLink = base.filter(p => p.linkki);
+      const finalMatches = withLink.length > 0 ? withLink : base;
       const brandLabel = foundBrand.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
       if (finalMatches.length > 0) {
         const count = finalMatches.length;
