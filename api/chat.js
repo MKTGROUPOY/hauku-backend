@@ -587,6 +587,16 @@ export default async function handler(req, res) {
       if (mentionedProduct && !activeProducts.some(p => p.nimi === mentionedProduct.nimi)) {
         activeProducts = [mentionedProduct, ...activeProducts];
       }
+      // RE-HYDRAATIO: session-tuotteet on tallennettu KEVENNETTYINÄ (ilman ainesosia
+      // ja ravintoarvoja, jotta sessio pysyy pienenä). Haetaan jokaiselle tuotteelle
+      // TÄYDET tiedot allProductsista nimen perusteella, jotta jatkokysymyksiin
+      // ("paljonko proteiinia", "kuinka paljon broileria", "magnesium") voidaan
+      // vastata ainesosa- ja ravintoainekentistä. Ilman tätä botti vastaisi
+      // virheellisesti "ei eritelty tietokannassa" vaikka data on olemassa.
+      activeProducts = activeProducts.map(sp => {
+        const full = allProducts.find(p => p.nimi === sp.nimi);
+        return full ? { ...sp, ...full } : sp;
+      });
       // Säilytä KOKO sessio (max 30) jotta "näytä loput" toimii myös jatkokysymysten
       // jälkeen — ei kutisteta 8:aan.
       if (activeProducts.length) saveSession(conversationId, activeProducts.slice(0, 30));
