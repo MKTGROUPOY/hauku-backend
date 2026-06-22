@@ -291,6 +291,22 @@ export default async function handler(req, res) {
       });
     }
 
+    // ── 0b2. RUOKATYYPPI JOTA EI OLE (raaka, märkä, pakaste...) ─────────
+    // Valikoimassa on VAIN kuivaruokaa. Jos käyttäjä kysyy raaka-, märkä-,
+    // pakastekuiva-, keitettyä tms. ruokaa, EI saa väittää sellaista löytyvän
+    // eikä esittää kuivaruokia toisena tyyppinä. Vastataan rehellisesti.
+    // Tunnistetaan tyyppipyyntö, mutta EI laukea jos sana esiintyy ainesosana
+    // ("raaka-aine") tai osana muuta ("märkä nenä").
+    const NONDRY_TYPE_RX = /\braakaruok|\braaka ruok|\bbarf\b|raakaruokint|\bmärkäruok|\bmärkä ruok|\bmärkäsäilyk|\bpurkkiruok|\bpurkkaruok|\bpakastekuiv|\bpakaste ?ruok|\bkeitetty.{0,8}ruok|\bnäsäruok|\bkylmäkuiv|\btuoreruok|\btuore ?ruok/.test(latestNorm);
+    // Vastaväite/varmistus tyypistä ("ettehän myy raakaruokaa", "ei kai teillä ole märkäruokaa")
+    const pushbackNonDry = NONDRY_TYPE_RX && /ettehän|ettekö|eikö|ei kai|vai olenko|en löydä|ei löydy|ettehan|onko sittenkään|eihän/.test(latestNorm);
+    const asksForNonDry = NONDRY_TYPE_RX && (pushbackNonDry || !/kuivaruok|kuiva ?ruok|nappul/.test(latestNorm));
+    if (asksForNonDry) {
+      return res.status(200).json({
+        reply: 'Hyvä kysymys — valikoimassamme on tällä hetkellä **vain kuivaruokia** (nappularuokia). Meiltä ei siis löydy raaka-, märkä- eikä pakasteruokia, joten en valitettavasti voi suositella niitä.\n\nVoin kuitenkin auttaa löytämään koirallesi sopivan laadukkaan kuivaruoan — kerro koirastasi (ikä, koko, mahdolliset allergiat tai erityistarpeet), niin etsin sopivia vaihtoehtoja!'
+      });
+    }
+
     // ── 0c. "PARAS / ENITEN" -TYYPPISET ARVOTTAVAT KYSYMYKSET ────────────
     // "Mikä on paras penturuoka", "mikä sisältää eniten lihaa" — emme voi
     // objektiivisesti väittää mitään "parhaaksi" emmekä vertailla määriä
