@@ -530,11 +530,24 @@ export default async function handler(req, res) {
     const variantWords = (afterBrand.match(/\b(adult|puppy|junior|senior|small|medium|large|maxi|mini|duck|lamb|chicken|salmon|fish|kana|lohi|lammas|nauta|ankka|kala|grain|free|sensitive|light|breed|original|sport|hypoallergenic|kalkkuna|peura|riisi|rice)\b/g) || []).length;
     const looksLikeSpecificProduct = variantWords >= 2;
 
-    const brandIntent = foundBrand && !looksLikeSpecificProduct && (
-      /montako|kuinka monta|paljonko|listaa|luettele|kaikki|mitä.*(on|löyty|teil|ruok|tuott|vaihto)|mitkä|näytä|onko teil|löytyy|löytyykö|saatavilla|valikoimas|merk|brändi|brandi|valmistaj/.test(latestNorm) ||
-      /^(entä|entäs|no entä|entäpä|ja|sekä)\s/.test(latestNorm.trim()) ||
-      latestNorm.trim().split(/\s+/).length <= 3  // lyhyt viesti, lähinnä pelkkä brändi
-    );
+    // ESTÄ brändihaku jos viesti on JATKOKYSYMYS näytetystä tuotteesta:
+    // (a) viittaa näytettyyn tuotteeseen ("tuossa", "tässä", "se", "tää", "näistä"),
+    // tai (b) kysyy tietyn tuotteen OMINAISUUTTA (proteiini, rasva, ainesosat,
+    //     sisältääkö, kosteus, magnesium...). Näissä tapauksissa brändilistaus on
+    //     väärä — käyttäjä haluaa tietoa yhdestä tuotteesta, ei merkin listausta.
+    //     Esim. "paljonko TUOSSA proboosterin ruoassa on proteiinia" = jatkokysymys.
+    const refersToShownProd = /\b(se|sen|siin|siinä|sii|tuo|tuon|tuossa|tuolla|toi|toin|tossa|tää|tämä|tän|tässä|näist|näissä|niist|niissä|ensimmäine|eka|ekassa|toinen|toisessa|kolmas|viimeine)\b/.test(latestNorm);
+    const asksAttribute = /paljonko|kuinka paljon|montako prosent|monta prosent|sisältääk|sisältääkö|onko siin|onko siel|ainesos|raaka-?aine|proteiin|rasva|kosteus|magnesium|kalsium|fosfori|kuitu|tuhka|ravintoarvo|ravintosis|energia|kcal|kalori|lihaa|lihan|broileri|montako gramm/.test(latestNorm);
+    const isProductFollowUp = (refersToShownProd || asksAttribute) && sessionHasProducts;
+
+    // Brändihaku laukeaa VAIN selvällä merkkilistaus-/määräkysymyksellä, EI
+    // ominaisuus- tai viittauskysymyksellä.
+    const brandListIntent =
+      /montako|kuinka monta|kuinka mont|paljonko.{0,12}(tuott|ruok|merk|erilais)|listaa|luettele|onko teil|löytyy|löytyykö|saatavilla|montako.{0,10}(tuott|ruok|merk)|mitä.{0,20}(merk|brändi|valmistaj|tuott|ruok)|mitä.{0,12}(on|löyty|teil)|mitä \w+(eita|eja|ja|oja|ita)\b|kaikki.{0,10}(tuott|ruok|merk|valikoim)/.test(latestNorm) ||
+      /^(entä|entäs|no entä|entäpä)\s/.test(latestNorm.trim()) ||
+      (latestNorm.trim().split(/\s+/).length <= 2 && !asksAttribute);  // viesti on lähes pelkkä brändi
+
+    const brandIntent = foundBrand && !looksLikeSpecificProduct && !isProductFollowUp && brandListIntent;
     if (brandIntent) {
       const bNorm = foundBrand.replace(/[^a-zäöå0-9 ]/g, '');
       // Reseptiruoat (Prescription/Veterinary Diet) eivät kuulu normaaliin
