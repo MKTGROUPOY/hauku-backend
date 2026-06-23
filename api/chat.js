@@ -466,13 +466,43 @@ export default async function handler(req, res) {
     const sessionProducts = loadSession(conversationId) || getProductsFromHistory(messages, allProducts);
 
     // Mainitseeko viesti suoraan jonkin tuotteen nimen? (esim. "kerro tästä: GRANDORF FRESH...")
+    // Tunnistus kestää myös OSITTAISEN nimen: käyttäjä voi jättää loppuosan pois
+    // (esim. "YDOLO Healthy & Pure Puppy" kun täysi nimi on "...- Puolikostea koiranruoka").
     let mentionedProduct = null;
     const msgLow = latestMsg.toLowerCase();
+    const normName = s => (s || '').toLowerCase().replace(/[^a-zäöå0-9 ]/g, ' ').replace(/ +/g, ' ').trim();
+    const msgNorm = normName(latestMsg);
+    // 1) Tarkka osuma (koko nimi sisältyy viestiin)
     for (const p of allProducts) {
       if (p.nimi && p.nimi.length > 6 && msgLow.includes(p.nimi.toLowerCase())) {
         mentionedProduct = p;
         break;
       }
+    }
+    // 2) Osittainen osuma: tuotteen nimen ALKUOSA (ennen viivaa/pilkkua) sisältyy
+    //    viestiin, TAI viestin sanoista suuri osa täsmää tuotteen nimeen. Vaaditaan
+    //    vähintään 3 yhteistä merkitsevää sanaa, jottei osu liian löysästi.
+    if (!mentionedProduct) {
+      let best = null, bestScore = 0;
+      const msgWords = new Set(msgNorm.split(' ').filter(w => w.length >= 3));
+      for (const p of allProducts) {
+        const namePart = normName((p.nimi || '').split(/[-–,]/)[0]); // nimen alkuosa ennen viivaa
+        // a) alkuosa kokonaan viestissä
+        if (namePart.length >= 6 && msgNorm.includes(namePart)) {
+          const score = namePart.split(' ').length + 10;
+          if (score > bestScore) { best = p; bestScore = score; }
+          continue;
+        }
+        // b) sanapohjainen päällekkäisyys
+        const nameWords = normName(p.nimi).split(' ').filter(w => w.length >= 3);
+        if (nameWords.length < 2) continue;
+        const overlap = nameWords.filter(w => msgWords.has(w)).length;
+        // vaadi >=3 yhteistä sanaa JA että ne kattavat suuren osan tuotenimestä
+        if (overlap >= 3 && overlap >= nameWords.length * 0.6 && overlap > bestScore) {
+          best = p; bestScore = overlap;
+        }
+      }
+      if (best) mentionedProduct = best;
     }
 
     // ── "NÄYTÄ LOPUT" — paljasta session piilossa olevat tuotteet ─────────
