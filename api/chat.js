@@ -23,35 +23,72 @@ function norm(s) {
 
 // ── Gemini kutsu ──────────────────────────────────────────────────────────
 async function callGemini(system, msgs, apiKey, maxTokens = 1500) {
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: system }] },
-        contents: msgs,
-        generationConfig: { maxOutputTokens: maxTokens, temperature: 0.0 },
-        safetySettings: [
-          { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
-          { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_ONLY_HIGH' },
-          { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
-          { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' },
-        ],
-      }),
+  // Automaattinen uudelleenyritys Geminin tilapäisiin ylikuormitusvirheisiin
+  // (503 = overloaded, 429 = rate limit). Nämä ovat Googlen päässä eivätkä korjaannu
+  // koodilla, mutta lyhyt odotus + uusi yritys onnistuu yleensä. Tämä vähentää
+  // dramaattisesti käyttäjälle näkyviä "ruuhkautunut"-viestejä.
+  const MAX_RETRIES = 3;
+  const RETRY_STATUSES = new Set([429, 500, 502, 503, 504]);
+  let lastErr = null;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    let res;
+    try {
+      res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            system_instruction: { parts: [{ text: system }] },
+            contents: msgs,
+            generationConfig: { maxOutputTokens: maxTokens, temperature: 0.0 },
+            safetySettings: [
+              { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
+              { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_ONLY_HIGH' },
+              { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
+              { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' },
+            ],
+          }),
+        }
+      );
+    } catch (netErr) {
+      // Verkkovirhe (esim. timeout) — yritä uudelleen
+      lastErr = netErr;
+      if (attempt < MAX_RETRIES) { await sleep(backoffMs(attempt)); continue; }
+      throw netErr;
     }
-  );
-  if (!res.ok) throw new Error(`Gemini ${res.status}: ${await res.text()}`);
-  const data = await res.json();
 
-  const cand = data.candidates?.[0];
-  const text = cand?.content?.parts?.[0]?.text;
-  if (text) return text;
+    if (res.ok) {
+      const data = await res.json();
+      const cand = data.candidates?.[0];
+      const text = cand?.content?.parts?.[0]?.text;
+      if (text) return text;
+      // Tyhjä vastaus — selvitä syy ja heitä virhe jotta se näkyy lokeissa/widgetissä
+      const reason = cand?.finishReason || data.promptFeedback?.blockReason || 'UNKNOWN';
+      throw new Error(`Gemini empty response (reason: ${reason})`);
+    }
 
-  // Tyhjä vastaus — selvitä syy ja heitä virhe jotta se näkyy lokeissa/widgetissä
-  const reason = cand?.finishReason || data.promptFeedback?.blockReason || 'UNKNOWN';
-  throw new Error(`Gemini empty response (reason: ${reason})`);
+    // Ei-ok vastaus: jos tilapäinen (503/429/5xx), yritä uudelleen; muuten heitä heti
+    const status = res.status;
+    const bodyText = await res.text().catch(() => '');
+    lastErr = new Error(`Gemini ${status}: ${bodyText}`);
+    if (RETRY_STATUSES.has(status) && attempt < MAX_RETRIES) {
+      await sleep(backoffMs(attempt));
+      continue;
+    }
+    throw lastErr;
+  }
+  throw lastErr || new Error('Gemini: tuntematon virhe');
 }
+
+// Eksponentiaalinen backoff pienellä satunnaisuudella (jitter): 0.4s, 0.9s, 1.8s
+function backoffMs(attempt) {
+  const base = 400 * Math.pow(2, attempt);
+  return Math.min(base, 2000) + Math.floor(Math.random() * 250);
+}
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
 
 // ── Onko jatkokysymys? ────────────────────────────────────────────────────
 // Vain selkeät viittaukset aiempiin tuotteisiin — ei tavalliset suomen sanat
@@ -612,7 +649,14 @@ export default async function handler(req, res) {
       const brandLabel = foundBrand.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
       if (finalMatches.length > 0) {
         const count = finalMatches.length;
-        const justCount = /montako|kuinka monta|paljonko|lukumäär/.test(latestNorm);
+        // "Entä BRAND" perii laskenta-muodon jos KÄYTTÄJÄ kysyi äskettäin määrää
+        // ("montako GRANDORFin tuotetta" → "entä Acana" = montako Acanaa).
+        const recentUserAskedCount = messages
+          .filter(m => m.role === 'user').slice(-4)
+          .some(m => /montako|kuinka monta|lukumäär|kuinka mont/.test(norm(m.content || '')));
+        const isEntaQuery = /^(entä|entäs|no entä|entäpä)\s/.test(latestNorm.trim());
+        const justCount = /montako|kuinka monta|paljonko|lukumäär/.test(latestNorm) ||
+          (isEntaQuery && recentUserAskedCount);
         const sessionData = finalMatches.slice(0, 30).map(p => ({
           nimi: p.nimi, rasva: p.rasva, erikois: p.erikois?.slice(0, 4), linkki: p.linkki, proteiinit: p.proteiinit, hiilihydraatit: p.hiilihydraatit,
         }));
