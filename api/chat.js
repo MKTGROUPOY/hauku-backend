@@ -343,6 +343,24 @@ export default async function handler(req, res) {
       });
     }
 
+    // SAATAVUUSKYSYMYS ("löytyykö/onko teillä raakaruokia/kuivaruokia") ILMAN muita
+    // kriteerejä → vahvistetaan että löytyy ja kysytään tarkennusta. EI dumpata
+    // tuotelistaa heti, koska kyseessä on kyllä/ei-kysymys, ei hakupyyntö.
+    // Hakukriteerit (ikä, koko, allergia, rotu, erikoisruokavalio) tunnistetaan;
+    // jos niitä on, EI mennä tähän vaan suoraan hakuun.
+    const isAvailabilityQ = /löytyyk|löytyy\?|löytyykö|onko teil|onko teillä|myyttek|myyttekö|onko valikoima|valikoimast|onko saatavil|saako teilt|teiltä löyt|teillä on|onko mitään|mitä.*on valikoim/.test(latestNorm);
+    const asksDryAvail = /\bkuivaruok|\bkuiva ruok|\bnappularuok|\bnappula\b|\bkuivamuon/.test(latestNorm);
+    // Onko viestissä muita hakukriteerejä? (ikä/koko/allergia/rotu/erikoisruokavalio)
+    const hasOtherCriteria = /pentu|pennu|penikka|junior|aikuin|seniori|vanha|\d ?v\b|\d ?kk|kuukau|viikko|pien|suur|iso|keskikok|kääpiö|jätti|chihuahua|labrad|noutaj|mopsi|bulldog|terrier|paimenkoir|allergi|ei kanaa|ei viljaa|kana-allergi|hypoaller|nivel|iho|herkk|vatsa|painonhall|aktiivi|steriloi|kasvis|viljaton|viljatont|vähärasva|korkearasva|lohi|kana|nauta|lammas|ankka|possu|kalkkuna|peura|hirvi/.test(latestNorm);
+
+    if ((asksRaw || asksDryAvail) && isAvailabilityQ && !hasOtherCriteria) {
+      const tyyppi = asksRaw ? 'raakaruokia' : 'kuivaruokia';
+      const muu = asksRaw ? 'kuivaruokia' : 'raakaruokia';
+      return res.status(200).json({
+        reply: `Kyllä, meiltä löytyy ${tyyppi}! 🐾 Valikoimassamme on myös ${muu}.\n\nKerro koirastasi, niin etsin sopivimmat ${tyyppi}: minkä ikäinen ja kokoinen koira on kyseessä, ja onko sillä allergioita tai erityistoiveita (esim. viljaton, tietty proteiini, herkkä vatsa)?`
+      });
+    }
+
     // ── 0c. "PARAS / ENITEN" -TYYPPISET ARVOTTAVAT KYSYMYKSET ────────────
     // "Mikä on paras penturuoka", "mikä sisältää eniten lihaa" — emme voi
     // objektiivisesti väittää mitään "parhaaksi" emmekä vertailla määriä
