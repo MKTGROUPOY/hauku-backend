@@ -328,19 +328,18 @@ export default async function handler(req, res) {
       });
     }
 
-    // ── 0b2. RUOKATYYPPI JOTA EI OLE (raaka, märkä, pakaste...) ─────────
-    // Valikoimassa on VAIN kuivaruokaa. Jos käyttäjä kysyy raaka-, märkä-,
-    // pakastekuiva-, keitettyä tms. ruokaa, EI saa väittää sellaista löytyvän
-    // eikä esittää kuivaruokia toisena tyyppinä. Vastataan rehellisesti.
-    // Tunnistetaan tyyppipyyntö, mutta EI laukea jos sana esiintyy ainesosana
-    // ("raaka-aine") tai osana muuta ("märkä nenä").
-    const NONDRY_TYPE_RX = /\braakaruok|\braaka ruok|\bbarf\b|raakaruokint|\bmärkäruok|\bmärkä ruok|\bmärkäsäilyk|\bpurkkiruok|\bpurkkaruok|\bpakastekuiv|\bpakaste ?ruok|\bkeitetty.{0,8}ruok|\bnäsäruok|\bkylmäkuiv|\btuoreruok|\btuore ?ruok/.test(latestNorm);
-    // Vastaväite/varmistus tyypistä ("ettehän myy raakaruokaa", "ei kai teillä ole märkäruokaa")
-    const pushbackNonDry = NONDRY_TYPE_RX && /ettehän|ettekö|eikö|ei kai|vai olenko|en löydä|ei löydy|ettehan|onko sittenkään|eihän/.test(latestNorm);
-    const asksForNonDry = NONDRY_TYPE_RX && (pushbackNonDry || !/kuivaruok|kuiva ?ruok|nappul/.test(latestNorm));
-    if (asksForNonDry) {
+    // ── 0b2. RUOKATYYPPISUODATUS (raakaruoka / kuivaruoka) ──────────────
+    // Valikoimassa on nyt sekä KUIVA- että RAAKARUOKIA (mutta EI märkä-/purkki-
+    // ruokia). Jos käyttäjä pyytää nimenomaan raakaruokaa, rajataan haku
+    // raakaruokiin. Jos pyytää kuivaruokaa, rajataan kuivaruokiin. Märkä-/purkki-
+    // ruokaa ei ole, joten siihen vastataan rehellisesti.
+    // Tunnistetaan tyyppi, mutta EI laukea ainesosasanasta ("raaka-aine").
+    const asksRaw = /\braakaruok|\braaka ruok|\bbarf\b|raakaruokint|raakaruokavalio|\braakis\b/.test(latestNorm) && !/raaka-?aine/.test(latestNorm);
+    const asksWet = /\bmärkäruok|\bmärkä ruok|\bmärkäsäilyk|\bpurkkiruok|\bpurkkaruok|\bpatee|\bpasteija|\bnestemäi/.test(latestNorm);
+    // Märkä-/purkkiruokaa EI ole valikoimassa
+    if (asksWet && !asksRaw) {
       return res.status(200).json({
-        reply: 'Hyvä kysymys — valikoimassamme on tällä hetkellä **vain kuivaruokia** (nappularuokia). Meiltä ei siis löydy raaka-, märkä- eikä pakasteruokia, joten en valitettavasti voi suositella niitä.\n\nVoin kuitenkin auttaa löytämään koirallesi sopivan laadukkaan kuivaruoan — kerro koirastasi (ikä, koko, mahdolliset allergiat tai erityistarpeet), niin etsin sopivia vaihtoehtoja!'
+        reply: 'Hyvä kysymys — valikoimassamme ei tällä hetkellä ole märkä- tai purkkiruokia. Meiltä löytyy sen sijaan **kuivaruokia** sekä **raakaruokia** (pakaste-, ilmakuivattuja ja pakastekuivattuja).\n\nKerro koirastasi (ikä, koko, mahdolliset allergiat tai erityistarpeet), niin etsin sopivia vaihtoehtoja näistä!'
       });
     }
 
@@ -710,7 +709,7 @@ export default async function handler(req, res) {
       const ctx = ctxProducts.map((p, i) => {
         // Merkki = tuotenimen ensimmäinen sana (tai monisanainen brändi)
         const brand = (p.nimi || '').split(/[\s,]+/)[0] || '-';
-        return `${i + 1}. ${p.nimi}\n   Merkki: ${brand}\n   Rasvataso: ${p.rasvaTarkka || p.rasva || '-'}\n   Ikä: ${(p.ika||[]).join(', ') || '-'}\n   Koko: ${(p.koko||[]).join(', ') || '-'}\n   Ominaisuudet: ${(p.erikois || []).join(', ') || '-'}\n   Pääproteiinit: ${(p.proteiinit||[]).join(', ') || '-'}\n   Hiilihydraatit: ${(p.hiilihydraatit||[]).join(', ') || '-'}\n   Rasvat ja öljyt: ${(p.rasvatOljyt||[]).join(', ') || '-'}\n   Ainesosat (TÄYSI luettelo, sisältää määrät mg/kg ja %): ${p.ainesosat || '(ei eritelty tietokannassa)'}\n   Ravintoarvot: ${p.ravintoaineet || '(ei eritelty tietokannassa)'}\n   Lisäaineet (vitamiinit, mineraalit, ravintolisät määrineen): ${p.lisaaineet || '(ei eritelty tietokannassa)'}\n   Tämä tuote EI sisällä (allergeenit): ${(p.vapaa||[]).join(', ') || '(ei tietoa)'}\n   Ostolinkki: ${p.linkki || '-'}`;
+        return `${i + 1}. ${p.nimi}\n   Merkki: ${brand}\n   Ruokatyyppi: ${p.ruokatyyppi || 'Kuivaruoka'}${p.ruoanTyyppi ? ' (' + p.ruoanTyyppi + ')' : ''}\n   Alkuperä: ${p.alkupera || '(ei tietoa)'}\n   Rasvataso: ${p.rasvaTarkka || p.rasva || '-'}\n   Ikä: ${(p.ika||[]).join(', ') || '-'}\n   Koko: ${(p.koko||[]).join(', ') || '-'}\n   Ominaisuudet: ${(p.erikois || []).join(', ') || '-'}\n   Pääproteiinit: ${(p.proteiinit||[]).join(', ') || '-'}\n   Hiilihydraatit: ${(p.hiilihydraatit||[]).join(', ') || '-'}\n   Rasvat ja öljyt: ${(p.rasvatOljyt||[]).join(', ') || '-'}\n   Ainesosat (TÄYSI luettelo, sisältää määrät mg/kg ja %): ${p.ainesosat || '(ei eritelty tietokannassa)'}\n   Ravintoarvot: ${p.ravintoaineet || '(ei eritelty tietokannassa)'}\n   Lisäaineet (vitamiinit, mineraalit, ravintolisät määrineen): ${p.lisaaineet || '(ei eritelty tietokannassa)'}\n   Tämä tuote EI sisällä (allergeenit): ${(p.vapaa||[]).join(', ') || '(ei tietoa)'}\n   Ostolinkki: ${p.linkki || '-'}`;
       }).join('\n\n');
 
       const followUpPrompt = SYSTEM_PROMPT +
@@ -849,7 +848,8 @@ export default async function handler(req, res) {
     const hasFilters = !!(
       filters.excl?.length || filters.age || filters.size ||
       filters.store || filters.specialDiets?.length ||
-      filters.monoProtein || filters.singleCarb || filters.fatLevel
+      filters.monoProtein || filters.singleCarb || filters.fatLevel ||
+      filters.ruokatyyppi
     );
 
     // NEUVONTAKYSYMYS vs TUOTEHAKU: jos käyttäjä KYSYY neuvoa ("voiks vanha koira
