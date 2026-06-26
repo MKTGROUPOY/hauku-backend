@@ -346,19 +346,58 @@ export default async function handler(req, res) {
     // SAATAVUUSKYSYMYS ("löytyykö/onko teillä raakaruokia/kuivaruokia") ILMAN muita
     // kriteerejä → vahvistetaan että löytyy ja kysytään tarkennusta. EI dumpata
     // tuotelistaa heti, koska kyseessä on kyllä/ei-kysymys, ei hakupyyntö.
-    // Hakukriteerit (ikä, koko, allergia, rotu, erikoisruokavalio) tunnistetaan;
-    // jos niitä on, EI mennä tähän vaan suoraan hakuun.
-    const isAvailabilityQ = /löytyyk|löytyy\?|löytyykö|onko teil|onko teillä|myyttek|myyttekö|onko valikoima|valikoimast|onko saatavil|saako teilt|teiltä löyt|teillä on|onko mitään|mitä.*on valikoim/.test(latestNorm);
+    // TÄRKEÄÄ: EI saa laueta MÄÄRÄ- ("montako"), ALKUPERÄ- ("minkä maalaisia") eikä
+    // muihin ominaisuuskysymyksiin — ne ohjataan oikeisiin haaroihin (brändi-/
+    // alkuperä-/hakulogiikka).
+    const isAvailabilityQ = /löytyyk|löytyykö|onko teil|onko teillä|myyttek|myyttekö|onko valikoima|onko saatavil|saako teilt|teiltä löyt|onko teillä yhtään|onko mitään.{0,15}ruok/.test(latestNorm);
     const asksDryAvail = /\bkuivaruok|\bkuiva ruok|\bnappularuok|\bnappula\b|\bkuivamuon/.test(latestNorm);
     // Onko viestissä muita hakukriteerejä? (ikä/koko/allergia/rotu/erikoisruokavalio)
     const hasOtherCriteria = /pentu|pennu|penikka|junior|aikuin|seniori|vanha|\d ?v\b|\d ?kk|kuukau|viikko|pien|suur|iso|keskikok|kääpiö|jätti|chihuahua|labrad|noutaj|mopsi|bulldog|terrier|paimenkoir|allergi|ei kanaa|ei viljaa|kana-allergi|hypoaller|nivel|iho|herkk|vatsa|painonhall|aktiivi|steriloi|kasvis|viljaton|viljatont|vähärasva|korkearasva|lohi|kana|nauta|lammas|ankka|possu|kalkkuna|peura|hirvi/.test(latestNorm);
+    // Määrä-, alkuperä- tai muu ominaisuuskysymys → EI saatavuusvahvistus
+    const isCountOrAttribute = /montako|kuinka monta|kuinka mont|paljonko|lukumäär|minkä maa|mistä maasta|minkä maalais|kotimais|suomalais|alkuperä|missä valmist|mikä merkki|mitä merkk/.test(latestNorm);
 
-    if ((asksRaw || asksDryAvail) && isAvailabilityQ && !hasOtherCriteria) {
+    if ((asksRaw || asksDryAvail) && isAvailabilityQ && !hasOtherCriteria && !isCountOrAttribute) {
       const tyyppi = asksRaw ? 'raakaruokia' : 'kuivaruokia';
+      const tyyppiMonikko = asksRaw ? 'raakaruoat' : 'kuivaruoat';
       const muu = asksRaw ? 'kuivaruokia' : 'raakaruokia';
       return res.status(200).json({
-        reply: `Kyllä, meiltä löytyy ${tyyppi}! 🐾 Valikoimassamme on myös ${muu}.\n\nKerro koirastasi, niin etsin sopivimmat ${tyyppi}: minkä ikäinen ja kokoinen koira on kyseessä, ja onko sillä allergioita tai erityistoiveita (esim. viljaton, tietty proteiini, herkkä vatsa)?`
+        reply: `Kyllä, meiltä löytyy ${tyyppi}! 🐾 Valikoimassamme on myös ${muu}.\n\nKerro koirastasi, niin etsin sopivimmat ${tyyppiMonikko}: minkä ikäinen ja kokoinen koira on kyseessä, ja onko sillä allergioita tai erityistoiveita (esim. viljaton, tietty proteiini, herkkä vatsa)?`
       });
+    }
+
+    // MÄÄRÄKYSYMYS RUOKATYYPISTÄ ("montako raakaruokaa/kuivaruokaa teillä on")
+    // → kerro lukumäärä (ei brändi, vaan ruokatyyppi).
+    if ((asksRaw || asksDryAvail) && /montako|kuinka monta|kuinka mont|paljonko|lukumäär/.test(latestNorm)) {
+      const isRawCount = asksRaw;
+      const matches = allProducts.filter(p => {
+        const t = (p.ruokatyyppi || 'Kuivaruoka').toLowerCase();
+        return isRawCount ? t.startsWith('raaka') : t.startsWith('kuiva');
+      });
+      const buyable = matches.filter(p => p.linkki);
+      const count = buyable.length || matches.length;
+      const tyyppi = isRawCount ? 'raakaruokaa' : 'kuivaruokaa';
+      return res.status(200).json({
+        reply: `Valikoimassamme on tällä hetkellä ${count} ${tyyppi}. Kerro koirastasi (ikä, koko, mahdolliset allergiat tai toiveet), niin etsin niistä sopivimmat juuri sinun koirallesi! 🐾`
+      });
+    }
+
+    // ALKUPERÄKYSYMYS RUOKATYYPISTÄ ("minkä maalaisia raakaruokia", "mistä maasta")
+    // → kerro alkuperät joita valikoimassa on (datasta), ei keksitä.
+    if ((asksRaw || asksDryAvail) && /minkä maa|mistä maasta|minkä maalais|miltä mailt|mistä päin|alkuperä|missä valmist|kotimais|suomalais/.test(latestNorm)) {
+      const isRawType = asksRaw;
+      const matches = allProducts.filter(p => {
+        const t = (p.ruokatyyppi || 'Kuivaruoka').toLowerCase();
+        return isRawType ? t.startsWith('raaka') : t.startsWith('kuiva');
+      });
+      const origins = {};
+      for (const p of matches) { if (p.alkupera) origins[p.alkupera] = (origins[p.alkupera] || 0) + 1; }
+      const tyyppi = isRawType ? 'raakaruoat' : 'kuivaruoat';
+      if (Object.keys(origins).length) {
+        const parts = Object.entries(origins).sort((a, b) => b[1] - a[1]).map(([o, n]) => `${o} (${n} kpl)`);
+        return res.status(200).json({
+          reply: `Meidän ${tyyppi} jakautuvat alkuperän mukaan näin: ${parts.join(', ')}.\n\nHaluatko että etsin tietyn alkuperän tuotteita (esim. kotimaisia), vai kerro koirastasi niin etsin sopivimmat?`
+        });
+      }
     }
 
     // ── 0c. "PARAS / ENITEN" -TYYPPISET ARVOTTAVAT KYSYMYKSET ────────────
