@@ -686,7 +686,7 @@ export default async function handler(req, res) {
       /^(entä|entäs|no entä|entäpä)\s/.test(latestNorm.trim()) ||
       (latestNorm.trim().split(/\s+/).length <= 2 && !asksAttribute);  // viesti on lähes pelkkä brändi
 
-    const brandIntent = foundBrand && !looksLikeSpecificProduct && !isProductFollowUp && brandListIntent;
+    const brandIntent = foundBrand && !looksLikeSpecificProduct && !isProductFollowUp && !mentionedProduct && brandListIntent;
     if (brandIntent) {
       const bNorm = foundBrand.replace(/[^a-zäöå0-9 ]/g, '');
       // Reseptiruoat (Prescription/Veterinary Diet) eivät kuulu normaaliin
