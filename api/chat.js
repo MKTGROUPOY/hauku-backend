@@ -682,7 +682,7 @@ export default async function handler(req, res) {
     // Brändihaku laukeaa VAIN selvällä merkkilistaus-/määräkysymyksellä, EI
     // ominaisuus- tai viittauskysymyksellä.
     const brandListIntent =
-      /montako|kuinka monta|kuinka mont|paljonko.{0,12}(tuott|ruok|merk|erilais)|listaa|luettele|onko teil|löytyy|löytyykö|saatavilla|montako.{0,10}(tuott|ruok|merk)|mitä.{0,20}(merk|brändi|valmistaj|tuott|ruok)|mitä.{0,12}(on|löyty|teil)|mitä \w+(eita|eja|ja|oja|ita)\b|kaikki.{0,10}(tuott|ruok|merk|valikoim)/.test(latestNorm) ||
+      /montako|kuinka monta|kuinka mont|paljonko.{0,12}(tuott|ruok|merk|erilais)|listaa|luettele|näytä|anna.{0,12}(tuott|ruok|merk)|kerro.{0,12}(tuott|ruok|merk|valikoim)|onko teil|löytyy|löytyykö|saatavilla|montako.{0,10}(tuott|ruok|merk)|mitä.{0,20}(merk|brändi|valmistaj|tuott|ruok)|mitä.{0,12}(on|löyty|teil)|mitä \w+(eita|eja|ja|oja|ita)\b|kaikki.{0,10}(tuott|ruok|merk|valikoim)/.test(latestNorm) ||
       /^(entä|entäs|no entä|entäpä)\s/.test(latestNorm.trim()) ||
       (latestNorm.trim().split(/\s+/).length <= 2 && !asksAttribute);  // viesti on lähes pelkkä brändi
 
@@ -713,11 +713,24 @@ export default async function handler(req, res) {
         const isEntaQuery = /^(entä|entäs|no entä|entäpä)\s/.test(latestNorm.trim());
         const justCount = /montako|kuinka monta|paljonko|lukumäär/.test(latestNorm) ||
           (isEntaQuery && recentUserAskedCount);
+        // SAATAVUUSKYSYMYS: "löytyykö/onko teillä BRAND tuotteita" ILMAN määräkysymystä
+        // tai muita kriteerejä → vahvista että löytyy + kysy mitä etsitään.
+        // EI dumpata tuotelistaa, koska kyseessä on kyllä/ei-kysymys.
+        const afterBrandNorm = afterBrand.trim();
+        const isBrandAvailabilityQ =
+          /löytyyk|löytyykö|onko teil|onko teillä|myyttek|myyttekö|saatavil|saako teilt|teiltä löyt|onko niit[äa]|onko heid[äa]n|onko mitä[äa]n|ollenkaan|yhtään/.test(latestNorm) &&
+          !justCount &&
+          // ei muita hakukriteerejä jäljellä brändinimen poiston jälkeen
+          !/pentu|pennu|aikuin|seniori|junior|pien|suur|iso|keskikok|allergi|viljaton|herkk|nivel|iho|vatsa|painonhall|proteiini|rasva|\d ?%|kana|nauta|lohi|lammas|possu|kalkkuna|ankka|peura|hirvi|jänis/.test(afterBrandNorm);
         const sessionData = finalMatches.slice(0, 30).map(p => ({
           nimi: p.nimi, rasva: p.rasva, erikois: p.erikois?.slice(0, 4), linkki: p.linkki, proteiinit: p.proteiinit, hiilihydraatit: p.hiilihydraatit,
         }));
         saveSession(conversationId, sessionData);
         const hidden = '\n<hauku_data>' + JSON.stringify(sessionData) + '</hauku_data>';
+        if (isBrandAvailabilityQ) {
+          const reply = `Kyllä, valikoimastamme löytyy ${brandLabel}-tuotteita (${count} kpl). 🐾\n\nHaluatko että listaan ne, kerron jostakin tarkemmin, vai etsinkö koirallesi sopivimman? Kerro koirastasi (ikä, koko, mahdolliset allergiat tai toiveet), niin autan!`;
+          return res.status(200).json({ reply: reply + hidden });
+        }
         if (justCount) {
           let reply = `Valikoimastamme löytyy ${count} ${brandLabel}-tuote${count === 1 ? '' : 'tta'}:\n\n`;
           reply += finalMatches.slice(0, 20).map(p => `• ${p.nimi}`).join('\n');
