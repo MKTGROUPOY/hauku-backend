@@ -780,6 +780,41 @@ export default async function handler(req, res) {
       // jälkeen — ei kutisteta 8:aan.
       if (activeProducts.length) saveSession(conversationId, activeProducts.slice(0, 30));
 
+      // ── OSTOLINKKIPYYNTÖ ─────────────────────────────────────────────────
+      // Kun käyttäjä pyytää OSTOLINKKIÄ tai kysyy mistä tuotteen voi ostaa,
+      // annetaan AFFILIATE-linkki suoraan datasta (deterministisesti, ei Geminin
+      // varassa, jottei pitkä URL mene rikki). Linkki on aina affiliate-linkki
+      // (ostolinkki), joka ohjaa tuotteeseen affiliate-seurannan kautta.
+      const wantsLink = /\b(linkki|linkkiä|linkin|linkit|url|nettiosoite|osoite|mistä voin osta|mistä sen saa|mistä saisi|saako sen|saanko sen|voinko ostaa|voiko ostaa|haluan ostaa sen|annatko.{0,12}link|anna.{0,12}link|linkkaa|linkkaisi)/.test(latestNorm) ||
+        /\b(mistä|missä|mistäpä|mistäs)\b.{0,25}(osta|saa|saisi|löytä|tilata|myydä|myy)/.test(latestNorm);
+      if (wantsLink) {
+        // Mihin tuotteeseen viitataan? Ensisijaisesti nimeltä mainittu, muuten
+        // session tuotteet. Jos session sisältää tarkalleen yhden tai pari tuotetta
+        // (tuotekohtainen keskustelu), annetaan niiden linkit; jos useita (hakulista),
+        // annetaan näytettyjen tuotteiden linkit (max 5).
+        const linkProducts = (mentionedProduct ? [mentionedProduct] : activeProducts)
+          .map(sp => allProducts.find(p => p.nimi === sp.nimi) || sp);
+        const withLinks = linkProducts.filter(p => p.linkki);
+        if (withLinks.length === 1) {
+          const p = withLinks[0];
+          return res.status(200).json({
+            reply: `Tässä ostolinkki: 🛒 [Osta ${p.nimi}](${p.linkki})\n\nLinkki vie tuotteen sivulle, josta voit tilata sen.`
+          });
+        } else if (withLinks.length > 1) {
+          const top = withLinks.slice(0, 5);
+          let reply = 'Tässä ostolinkit:\n\n';
+          reply += top.map(p => `🛒 [Osta ${p.nimi}](${p.linkki})`).join('\n');
+          if (withLinks.length > top.length) reply += `\n\n(Kerro mistä tuotteesta olet kiinnostunut, niin annan tarkemmat tiedot.)`;
+          return res.status(200).json({ reply });
+        } else if (linkProducts.length >= 1) {
+          // Tuote tunnistettu, mutta sillä ei ole ostolinkkiä datassa
+          const p = linkProducts[0];
+          return res.status(200).json({
+            reply: `Valitettavasti tuotteelle ${p.nimi} ei ole tällä hetkellä suoraa ostolinkkiä tietokannassamme. Voit etsiä sen RuokaKoiralle.fi-sivuston haulla. Voin myös etsiä sinulle vastaavia tuotteita joista löytyy ostolinkki — kerro vain!`
+          });
+        }
+      }
+
       // TÄYDET tiedot session-tuotteista — mutta vain ENSIMMÄISET 8 promptiin, jotta
       // konteksti ei kasva liian suureksi. "ei sisällä" -lista mukana joka kerta.
       const ctxProducts = activeProducts.slice(0, 8);
@@ -800,7 +835,7 @@ export default async function handler(req, res) {
         '\nHUOM 2e — RAVINTOARVOJEN YKSITTÄISET LUVUT: "Ravintoarvot:" -kenttä sisältää tarkat arvot (raakaproteiini, raakarasva, tuhka, raakakuitu, kosteus, kalsium, fosfori, metaboloituva energia). Kun käyttäjä kysyy yksittäistä arvoa ("paljonko raakaproteiinia", "paljonko kalsiumia", "montako kcal", "paljonko kuitua"), POIMI tarkka luku tästä kentästä ja vastaa sillä (esim. "Raakaproteiinia on 27,1 %"). ÄLÄ sano "ei eritelty" jos arvo on kentässä.' +
         '\nHUOM 2f — LISÄAINEET / VITAMIINIT / MINERAALIT: "Lisäaineet:" -kenttä sisältää vitamiinit, mineraalit ja ravintolisät määrineen (esim. "Rauta 48 mg, Tauriini 1000 mg/kg, A-vitamiini 14 400 IU"). Kun käyttäjä kysyy lisäaineista tai tietystä vitamiinista/mineraalista ("mitä lisäaineita", "paljonko rautaa", "onko siinä tauriinia", "paljonko sinkkiä"), POIMI vastaus tästä kentästä tarkalla määrällä. Jos kenttä on "(ei eritelty tietokannassa)", kehota tarkistamaan pakkauksesta.' +
         '\nHUOM 2g — AINESOSAN TARKKA MÄÄRÄ: "Ainesosat:" -luettelo sisältää usein tarkat määrät prosentteina tai mg/kg (esim. "20 % bataatti", "mustikka (2333 mg/kg)", "45 % Iberico-porsas"). Kun käyttäjä kysyy KUINKA PALJON jotain ainesosaa on ("paljonko lihaa", "kuinka paljon mustikkaa", "paljonko bataattia"), POIMI tarkka määrä luettelosta ja vastaa sillä (esim. "Mustikkaa on 2333 mg/kg" tai "Lihaa ja kalaa on yhteensä 75 %"). Jos ainesosa on luettelossa mutta ilman määrää, sano että se sisältyy mutta tarkkaa määrää ei ole eritelty. Jos ainesosaa ei ole luettelossa, sano ettei tuote sisällä sitä.' +
-        '\nHUOM 2h — MERKKI / OSTOPAIKKA: "Merkki:" -kentästä näet tuotteen merkin. Kun kysytään mistä tuotetta saa tai mistä sen voi ostaa, ohjaa "Ostolinkki:" -kentän kauppaan (mutta ÄLÄ kirjoita itse linkkiä — käyttäjä näkee ostopainikkeen tuotekortissa; sano esim. "Voit ostaa sen tuotekortin Osta-painikkeesta").' +
+        '\nHUOM 2h — MERKKI / OSTOPAIKKA: "Merkki:" -kentästä näet tuotteen merkin. Kun kysytään mistä tuotetta saa tai mistä sen voi ostaa, kerro että annat ostolinkin (järjestelmä lisää oikean affiliate-linkin automaattisesti). ÄLÄ kirjoita itse URL-osoitetta (se voisi mennä rikki) — riittää että sanot esim. "Tässä ostolinkki Profine Dog Energy Chicken -ruokaan" tai ohjaat tuotekortin Osta-painikkeeseen. ÄLÄ KOSKAAN väitä ettei sinulla ole linkkiä — tuotteilla on ostolinkki ja järjestelmä antaa sen.' +
         '\nHUOM 3: Tuotteen NIMI paljastaa usein pääraaka-aineen (esim. "...Lohi" = sisältää lohta/kalaa; "...Lamb"/"...Lammas" = SISÄLTÄÄ lammasta; "...Chicken"/"...Kana" = sisältää kanaa). Käytä tätä: ÄLÄ KOSKAAN väitä että esim. "Lamb"-niminen tuote ei sisällä lammasta. Jos käyttäjä painostaa ("kyllä varmasti löytyy", "tarkista uudelleen"), ÄLÄ keksi tuotetta joka ei oikeasti sovi — pidä kiinni datasta ja sano rehellisesti jos sopivaa ei ole.' +
         '\nHUOM 3b — ÄLÄ KOSKAAN FABRIKOI: Jos edellinen haku palautti 0 tuotetta tai "ei löytynyt", ÄLÄ keksi tuotetta vastataksesi käyttäjän painostukseen. Toista että näillä kriteereillä ei valitettavasti löytynyt sopivaa, ja ehdota jonkin rajauksen poistamista. Olemattoman tuotteen tai väärän tiedon keksiminen on pahin mahdollinen virhe.' +
         '\nHUOM 4: "Viljaton" on ERI ASIA kuin yksittäinen vilja "ei sisällä" -listassa. ÄLÄ päättele "viljaton" sen perusteella että esim. Riisi on listassa — tarkista "Viljaton" AINOASTAAN Erikoisominaisuudet-kentästä.' +
