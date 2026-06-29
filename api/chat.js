@@ -763,7 +763,10 @@ export default async function handler(req, res) {
       // toimii: ensimmäinen kysymys tallentaa tuotteen sessioon, jolloin jatkokysymys
       // löytää sen (eikä putoa uuteen hakuun tyhjän session takia).
       let activeProducts = sessionProducts.slice();
-      if (mentionedProduct && !activeProducts.some(p => p.nimi === mentionedProduct.nimi)) {
+      if (mentionedProduct) {
+        // Siirrä nimeltä mainittu tuote AINA listan kärkeen (tuorein fokus),
+        // myös jos se on jo sessiossa — jotta myöhempi "anna linkki" osuu siihen.
+        activeProducts = activeProducts.filter(p => p.nimi !== mentionedProduct.nimi);
         activeProducts = [mentionedProduct, ...activeProducts];
       }
       // RE-HYDRAATIO: session-tuotteet on tallennettu KEVENNETTYINÄ (ilman ainesosia
@@ -785,33 +788,40 @@ export default async function handler(req, res) {
       // annetaan AFFILIATE-linkki suoraan datasta (deterministisesti, ei Geminin
       // varassa, jottei pitkä URL mene rikki). Linkki on aina affiliate-linkki
       // (ostolinkki), joka ohjaa tuotteeseen affiliate-seurannan kautta.
-      const wantsLink = /\b(linkki|linkkiä|linkin|linkit|url|nettiosoite|osoite|mistä voin osta|mistä sen saa|mistä saisi|saako sen|saanko sen|voinko ostaa|voiko ostaa|haluan ostaa sen|annatko.{0,12}link|anna.{0,12}link|linkkaa|linkkaisi)/.test(latestNorm) ||
-        /\b(mistä|missä|mistäpä|mistäs)\b.{0,25}(osta|saa|saisi|löytä|tilata|myydä|myy)/.test(latestNorm);
+      const wantsLink = /(linkki|linkkiä|linkin|linkit|url|nettiosoite|osoite|mistä voin osta|mistä sen saa|mistä saisi|saako sen|saanko sen|voinko ostaa|voiko ostaa|haluan ostaa sen|annatko.{0,12}link|anna.{0,12}link|linkkaa|linkkaisi)/.test(latestNorm) ||
+        /(mistä|missä|mistäpä|mistäs)\s.{0,20}(osta|saa|saisi|löytä|tilata|myydä|myy)/.test(latestNorm);
       if (wantsLink) {
-        // Mihin tuotteeseen viitataan? Ensisijaisesti nimeltä mainittu, muuten
-        // session tuotteet. Jos session sisältää tarkalleen yhden tai pari tuotetta
-        // (tuotekohtainen keskustelu), annetaan niiden linkit; jos useita (hakulista),
-        // annetaan näytettyjen tuotteiden linkit (max 5).
-        const linkProducts = (mentionedProduct ? [mentionedProduct] : activeProducts)
-          .map(sp => allProducts.find(p => p.nimi === sp.nimi) || sp);
-        const withLinks = linkProducts.filter(p => p.linkki);
-        if (withLinks.length === 1) {
-          const p = withLinks[0];
-          return res.status(200).json({
-            reply: `Tässä ostolinkki: 🛒 [Osta ${p.nimi}](${p.linkki})\n\nLinkki vie tuotteen sivulle, josta voit tilata sen.`
-          });
-        } else if (withLinks.length > 1) {
-          const top = withLinks.slice(0, 5);
-          let reply = 'Tässä ostolinkit:\n\n';
-          reply += top.map(p => `🛒 [Osta ${p.nimi}](${p.linkki})`).join('\n');
-          if (withLinks.length > top.length) reply += `\n\n(Kerro mistä tuotteesta olet kiinnostunut, niin annan tarkemmat tiedot.)`;
-          return res.status(200).json({ reply });
-        } else if (linkProducts.length >= 1) {
-          // Tuote tunnistettu, mutta sillä ei ole ostolinkkiä datassa
-          const p = linkProducts[0];
-          return res.status(200).json({
-            reply: `Valitettavasti tuotteelle ${p.nimi} ei ole tällä hetkellä suoraa ostolinkkiä tietokannassamme. Voit etsiä sen RuokaKoiralle.fi-sivuston haulla. Voin myös etsiä sinulle vastaavia tuotteita joista löytyy ostolinkki — kerro vain!`
-          });
+        // Mihin tuotteeseen viitataan? Ensisijaisesti nimeltä mainittu (tässä viestissä),
+        // muuten VIIMEKSI KÄSITELTY tuote (session ensimmäinen = tuorein fokus).
+        // activeProducts[0] on tuorein, koska nimeltä mainittu tuote lisätään aina alkuun.
+        // Annetaan YKSI linkki, paitsi jos käyttäjä pyytää nimenomaan useita ("linkit",
+        // "kaikki linkit", "näiden linkit").
+        const wantsMultiple = /\b(linkit|kaikki link|näiden link|kaikkien link|jokaisen link|listaa link)\b/.test(latestNorm);
+        const hydrate = sp => allProducts.find(p => p.nimi === sp.nimi) || sp;
+        if (mentionedProduct) {
+          // Käyttäjä nimesi tuotteen tässä viestissä → tasan se
+          const p = hydrate(mentionedProduct);
+          if (p.linkki) {
+            return res.status(200).json({ reply: `Tässä ostolinkki: 🛒 [Osta ${p.nimi}](${p.linkki})\n\nLinkki vie tuotteen sivulle, josta voit tilata sen.` });
+          }
+          return res.status(200).json({ reply: `Valitettavasti tuotteelle ${p.nimi} ei ole tällä hetkellä suoraa ostolinkkiä tietokannassamme. Voin etsiä vastaavia tuotteita joista löytyy ostolinkki — kerro vain!` });
+        }
+        if (wantsMultiple) {
+          // Useita linkkejä pyydetty → näytetyt tuotteet (max 5)
+          const withLinks = activeProducts.map(hydrate).filter(p => p.linkki).slice(0, 5);
+          if (withLinks.length) {
+            let reply = 'Tässä ostolinkit:\n\n' + withLinks.map(p => `🛒 [Osta ${p.nimi}](${p.linkki})`).join('\n');
+            return res.status(200).json({ reply });
+          }
+        }
+        // Yksi tuote (singular-viittaus "tuotteen/sen/tämän" tai oletus) → tuorein fokus
+        const focus = activeProducts.map(hydrate).find(p => p.linkki);
+        if (focus) {
+          return res.status(200).json({ reply: `Tässä ostolinkki: 🛒 [Osta ${focus.nimi}](${focus.linkki})\n\nLinkki vie tuotteen sivulle, josta voit tilata sen.` });
+        }
+        if (activeProducts.length) {
+          const p = activeProducts[0];
+          return res.status(200).json({ reply: `Valitettavasti tuotteelle ${p.nimi} ei ole tällä hetkellä suoraa ostolinkkiä tietokannassamme. Voin etsiä vastaavia tuotteita joista löytyy ostolinkki — kerro vain!` });
         }
       }
 
