@@ -735,7 +735,14 @@ export default async function handler(req, res) {
       }
     }
 
-    const isFollowUp = detectFollowUp(latestMsg, sessionProducts) || !!mentionedProduct;
+    // Selkeä UUSI tuotekategoriapyyntö ohittaa jatkokysymyskäsittelyn, jottei
+    // "haluan ostaa luita" / "onko teillä riistaa" jää jumiin edellisiin tuotteisiin.
+    const explicitNewCategory = /\b(luut|luita|sisäelim|kypsennett|riista|peura|hirvi|poro|jänis|villisik|strutsi|raakaruok|kuivaruok|märkäruok)\w*/.test(latestNorm) &&
+      (/\b(onko teil|löytyy|löytyyk|haluan ostaa|haluan|myyttek|näytä|etsi|suosittel|saako teilt|mitä.*löyty|montako|minkä maa)\b/.test(latestNorm) ||
+       /^(entä|entäs|no entä|entäpä)\s/.test(latestNorm.trim())) &&
+      !/\b(siinä|tuossa|tossa|sen\b|tää|tämä ruoka|se ruoka|ensimmäis|toinen näist)\b/.test(latestNorm);
+
+    const isFollowUp = (detectFollowUp(latestMsg, sessionProducts) || !!mentionedProduct) && !explicitNewCategory;
 
     if (isFollowUp) {
       // Jos viesti mainitsi tuotteen nimeltä jota EI ole vielä sessiossa, lisää se.
@@ -784,8 +791,8 @@ export default async function handler(req, res) {
         '\nHUOM 3: Tuotteen NIMI paljastaa usein pääraaka-aineen (esim. "...Lohi" = sisältää lohta/kalaa; "...Lamb"/"...Lammas" = SISÄLTÄÄ lammasta; "...Chicken"/"...Kana" = sisältää kanaa). Käytä tätä: ÄLÄ KOSKAAN väitä että esim. "Lamb"-niminen tuote ei sisällä lammasta. Jos käyttäjä painostaa ("kyllä varmasti löytyy", "tarkista uudelleen"), ÄLÄ keksi tuotetta joka ei oikeasti sovi — pidä kiinni datasta ja sano rehellisesti jos sopivaa ei ole.' +
         '\nHUOM 3b — ÄLÄ KOSKAAN FABRIKOI: Jos edellinen haku palautti 0 tuotetta tai "ei löytynyt", ÄLÄ keksi tuotetta vastataksesi käyttäjän painostukseen. Toista että näillä kriteereillä ei valitettavasti löytynyt sopivaa, ja ehdota jonkin rajauksen poistamista. Olemattoman tuotteen tai väärän tiedon keksiminen on pahin mahdollinen virhe.' +
         '\nHUOM 4: "Viljaton" on ERI ASIA kuin yksittäinen vilja "ei sisällä" -listassa. ÄLÄ päättele "viljaton" sen perusteella että esim. Riisi on listassa — tarkista "Viljaton" AINOASTAAN Erikoisominaisuudet-kentästä.' +
-        '\nHUOM 5 — KRIITTINEN: "Kaikille kokoluokille" tarkoittaa että tuote sopii KAIKKIIN kokoluokkiin MUKAAN LUKIEN "Erittäin suuri", "Suuri", "Keskikokoinen" ja "Pieni". Samoin "Kaikille ikäluokille" sopii KAIKKIIN ikäluokkiin (Pentu, Junior, Aikuinen, Senior). ÄLÄ KOSKAAN väitä tuotteen "ei sopivan" jollekin koko- tai ikäluokalle jos sen Koko/Ikä-kentässä lukee "Kaikille kokoluokille"/"Kaikille ikäluokille" — se sopii. Jos käyttäjä kyseenalaistaa tuotteen soveltuvuuden, tarkista annettu data: jos data sanoo tuotteen sopivan, VAHVISTA se, ÄLÄ pahoittele olematonta virhettä. Peräänny VAIN jos data oikeasti osoittaa ettei tuote sovi (Koko/Ikä-kenttä ei sisällä kysyttyä luokkaa eikä "Kaikille X" -merkintää).' +
-        '\n\nKRIITTINEN MUOTOILUOHJE — TÄRKEÄ:' +
+        '\nHUOM 5 — IKÄ JA KOKO, KRIITTINEN: Kerro tuotteen ikä- ja kokoluokka TÄSMÄLLEEN sen omasta "Ikä:" ja "Koko:" -kentästä. ÄLÄ KOSKAAN yleistä "sopii kaikille ikäluokille/kokoluokille" ellei kentässä LUE sanatarkasti "Kaikille ikäluokille"/"Kaikille kokoluokille". Esimerkki: jos "Ikä: Aikuinen" ja "Koko: Pieni", sano "tarkoitettu aikuisille pienikokoisille koirille" — ÄLÄ sano "kaikille". Jos "Koko: Kaikille kokoluokille", se kuitenkin sopii myös isoille — silloin älä rajaa pois. Kun käyttäjä kyseenalaistaa soveltuvuuden, lue kentät uudelleen ja kerro mitä niissä OIKEASTI lukee, älä arvaa. Jos kentässä lukee tietty luokka (esim. vain "Aikuinen"), tuote on suunniteltu sille — älä väitä sen sopivan kaikille.' +
+        '\nHUOM 5b — RAAKARUOAT, TÄYSRAVINTO vs TÄYDENNYSRAVINTO: Raakaruoilla "Ruokatyyppi:" -kentässä on suluissa tarkempi tyyppi (esim. "Raakaruoka (Täysravinto)", "Raakaruoka (Täydennysravinto)", "Raakaruoka (Luut ja rustot)", "Raakaruoka (Sisäelimet)"). Kun käyttäjä kysyy raakaruoasta, MAINITSE onko se täysravinto vai täydennysravinto, koska se on koiranomistajalle olennaista: TÄYSRAVINTO käy ainoaksi ruoaksi, TÄYDENNYSRAVINTO (kuten luut, sisäelimet, lihaseokset, rasvalisät) on tarkoitettu vain täydentämään ruokavaliota EIKÄ käy ainoaksi ravinnoksi. Jos tuote on täydennysravintoa (esim. luut, sisäelimet, pelkkä liha), kerro selkeästi että se on lisuke/täydennys eikä korvaa täysipainoista ruokaa. Käytä tätä tietoa "Ruokatyyppi:" -kentästä, älä arvaa.' +
         '\n- Vastaa LYHYESTI, 1-4 lauseella PROOSANA. ÄLÄ toista tuotekortteja (ei "Rasvataso:", "Sopii:", "🛒 Osta" -rivejä) — ne näkyvät käyttäjälle JO edellisessä viestissä.' +
         '\n- ÄLÄ kirjoita ostolinkkejä uudelleen tässä vastauksessa.' +
         '\n- Jos käyttäjä sanoo aiemman valinnan olleen väärä (esim. tuote sisältää allergeenin, väärä koko/ikäluokka) — MYÖNNÄ virhe lyhyesti ja sano että haet uudet vaihtoehdot; järjestelmä tekee uuden haun automaattisesti. ÄLÄ viittaa mihinkään painikkeeseen.' +
@@ -819,6 +826,89 @@ export default async function handler(req, res) {
       return res.status(200).json({ reply: reply || 'Yritä uudelleen.' });
     }
 
+    // ── 3a2. ERIKOISHAUT: LUUT, SISÄELIMET, KYPSENNETTÄVÄ, RIISTA ─────────
+    // Botti kielsi aiemmin näitä vaikka niitä ON valikoimassa (raakaruokina).
+    // Haetaan suoraan datasta tuotetyypin / ominaisuuden / proteiinin mukaan.
+    // Saa laueta MYÖS session aikana, jos kyseessä on selkeä uusi tuotekategoria-
+    // pyyntö (esim. "onko teillä luita" kesken muun keskustelun). Estetään kuitenkin
+    // laukeaminen jos viesti on selvä jatkokysymys NÄYTETYISTÄ tuotteista.
+    {
+      const asksBones = /\b(luut|luita|luu\b|putkilu|ydinlu|rustolu|rustoja|rustot|raakalu|ajanvietelu|pururuok|purulu)/.test(latestNorm) && !/luuttom|luuton/.test(latestNorm);
+      const asksOrgans = /\b(sisäelim|sisäelin|maksa|munuais.*ruok|elimi[äa])\b/.test(latestNorm) && !/munuaisten vajaa|munuaissair/.test(latestNorm);
+      const asksCookable = /kypsennett|kypsennelt|keitettäv|keittää voi|voi keittää|voi kypsent|kypsät/.test(latestNorm);
+      const GAME_RX = /\b(riista|peura|peuran|hirvi|hirve|poro|poroa|poron|jänis|jänist|jänekse|kani\b|kania|kanin|villisik|villisia|strutsi|fasaani|hevonen|hevosta|hevosen)/.test(latestNorm) && !/raaka-?aine/.test(latestNorm);
+      // Jatkokysymys näytetyistä tuotteista (esim. "paljonko siinä proteiinia",
+      // "sopiiko se", "mitä se sisältää") -> EI erikoishakua, vaan jatkokäsittely.
+      const isFollowUpAboutShown = sessionHasProducts && /\b(siinä|tuossa|tossa|tää|tämä|se\b|sen\b|niissä|näissä|ensimmäis|toinen|kolmas|paljonko.*proteiini|sopiiko|käykö|sisältääk)\b/.test(latestNorm) && !/onko teil|löytyy|haluan ostaa|myyttek|näytä|muita|lisää/.test(latestNorm);
+      // ÄLÄ laukaise erikoishakua jos viestissä on RAJAUS ("vain/ainoastaan") tai
+      // allergia-/poissulkukonteksti — silloin pitää käyttää normaalia suodatusta
+      // joka osaa whitelistin ja allergeenipoissulun. Esim. "saa syödä vain peuraa"
+      // EI ole "näytä peuraruoat" vaan rajattu ruokavalio.
+      const hasRestrictionContext = /\b(vain|ainoastaan|pelkästään|ainut|rajattu|rajoitettu)\b/.test(latestNorm) ||
+        /\b(ei|eikä|ilman|allergi|herkkä|ei saa|ei voi)\b/.test(latestNorm);
+      // Kategorian maininta ON jo hakuaikomus — ei vaadita erillistä hakuverbiä.
+      // Estetään kuitenkin laukeaminen jos kyseessä on selvä neuvontakysymys
+      // ("saako koira syödä luita") johon pitää vastata neuvona, ei tuotelistana.
+      const isAdvice = /\b(saako|saanko|voiko|voinko|voiks|kannattaa|kannattaako|onko hyvä|onko ok|pitääk|miksi|kuinka usein|paljonko.*päiv|saako antaa|voiko antaa|voiks antaa|hyvä idea)\b/.test(latestNorm) ||
+        /vaaralli|turvallis|haitallis|terveellis|myrkyllis|sopiiko.*syöd|onko.*ok antaa/.test(latestNorm);
+      const searchVerb = !isAdvice && !isFollowUpAboutShown;
+      // Riista/kypsennettävä-erikoishaku ei laukea rajaus-/allergiakontekstissa
+      // (silloin normaali suodatus hoitaa whitelistin). Luut/sisäelimet sen sijaan
+      // ovat tuotekategorioita joita rajaus ei yleensä koske.
+      const gameOk = !hasRestrictionContext;
+
+      let specialMatches = null, specialLabel = '';
+      if (asksBones && searchVerb) {
+        specialMatches = allProducts.filter(p => {
+          const rt = String(p.ruoanTyyppi || '').toLowerCase();
+          return rt.includes('luut') || rt.includes('rusto') || /\b(luu|luut|putkilu|ydinlu|rustolu|nivellu|poronlu|naudanlu|lampaanlu|hirvenlu|sianrustot|rustoluu)/.test(p.nimi.toLowerCase());
+        });
+        specialLabel = 'luita ja rustoja';
+      } else if (asksOrgans && searchVerb) {
+        specialMatches = allProducts.filter(p => String(p.ruoanTyyppi || '').toLowerCase().includes('sisäelim') ||
+          /\b(maksa|munuai|sydän|keuhko|perna|sisäelin)/.test(p.nimi.toLowerCase()));
+        specialLabel = 'sisäelimiä';
+      } else if (asksCookable && searchVerb && gameOk) {
+        specialMatches = allProducts.filter(p => (p.erikois || []).some(e => /kypsenn/i.test(e)));
+        specialLabel = 'kypsennettäväksi sopivia raakaruokia';
+      } else if (GAME_RX && searchVerb && gameOk) {
+        const gameProteins = ['Peura', 'Hirvi', 'Poro', 'Jänis', 'Villisika', 'Fasaani', 'Hevonen', 'Strutsi'];
+        // Mitkä riistalajit mainittiin? Jos "riista" yleisesti -> kaikki.
+        let wanted = gameProteins.filter(g => {
+          const map = { Peura: /peura/, Hirvi: /hirv/, Poro: /poro/, Jänis: /jänis|jänes|kani/, Villisika: /villisik|villisia/, Fasaani: /fasaani/, Hevonen: /hevon|hevos/, Strutsi: /strutsi/ };
+          return map[g].test(latestNorm);
+        });
+        if (/riista/.test(latestNorm) && !wanted.length) wanted = gameProteins;
+        if (!wanted.length) wanted = gameProteins;
+        specialMatches = allProducts.filter(p =>
+          (p.proteiinit || []).some(pr => wanted.includes(pr)) ||
+          (p.ainesosat || '').toLowerCase().includes('riista') ||
+          wanted.some(w => p.ainesosat && p.ainesosat.toLowerCase().includes(w.toLowerCase()))
+        );
+        specialLabel = wanted.length === gameProteins.length ? 'riistapohjaisia ruokia' : (wanted.join('/').toLowerCase() + '-pohjaisia ruokia');
+      }
+
+      if (specialMatches) {
+        // Karsi reseptiruoat + suosi ostettavia
+        const buyable = specialMatches.filter(p => p.linkki);
+        const finalMatches = buyable.length ? buyable : specialMatches;
+        if (finalMatches.length > 0) {
+          const list = buildDirectProductResponse(finalMatches, {});
+          const sessionData = finalMatches.slice(0, 8).map(p => ({
+            nimi: p.nimi, rasva: p.rasva, erikois: p.erikois?.slice(0, 4), linkki: p.linkki,
+            proteiinit: p.proteiinit, hiilihydraatit: p.hiilihydraatit, ruokatyyppi: p.ruokatyyppi, ruoanTyyppi: p.ruoanTyyppi,
+          }));
+          const hidden = '\n<hauku_data>' + JSON.stringify(sessionData) + '</hauku_data>';
+          saveSession(conversationId, finalMatches.slice(0, 30));
+          return res.status(200).json({ reply: list + hidden });
+        } else {
+          return res.status(200).json({
+            reply: `En löytänyt valikoimastamme ${specialLabel} näillä hakusanoilla. Voit kertoa tarkemmin mitä etsit, niin autan!`,
+          });
+        }
+      }
+    }
+
     // ── 3b. AINESOSAHAKU ("onko ruokia jotka sisältävät X") ──────────────
     // Kun käyttäjä kysyy tiettyä ainesosaa SISÄLTÄVIÄ ruokia (ei allergiaa eli
     // poissulkua, vaan nimenomaan "sisältää"), haetaan suoraan ainesosakentästä.
@@ -847,10 +937,31 @@ export default async function handler(req, res) {
       if (term && term.length >= 3 && !stopwords.test(term)) {
         // Suomen taivutus: pudota loppu-vokaali/pääte ("silliä"->"silli", "lohta"->"loh")
         const stem = term.replace(/(aa|ää|ta|tä|lle|lla|llä|ssa|ssä|a|ä|n)$/u, '');
-        const matches = allProducts.filter(p =>
-          p.ainesosat && (p.ainesosat.toLowerCase().includes(term) ||
-                          (stem.length >= 4 && p.ainesosat.toLowerCase().includes(stem)))
-        );
+        // Proteiininimi-synonyymit: kani->jänis, riista->kaikki riistalajit
+        const PROT_SYN = {
+          kani: ['jänis'], kanin: ['jänis'], jänis: ['jänis'], jäniksen: ['jänis'],
+          peura: ['peura'], peuran: ['peura'], hirvi: ['hirvi'], hirven: ['hirvi'],
+          poro: ['poro'], poron: ['poro'], villisika: ['villisika'], villisian: ['villisika'],
+          strutsi: ['strutsi'], fasaani: ['fasaani'], hevonen: ['hevonen'], hevosen: ['hevonen'],
+          riista: ['peura', 'hirvi', 'poro', 'jänis', 'villisika', 'fasaani'],
+          riistaa: ['peura', 'hirvi', 'poro', 'jänis', 'villisika', 'fasaani'],
+          kala: ['kala', 'lohi'], lohi: ['lohi'], lohta: ['lohi'], kana: ['kana'], kanaa: ['kana'],
+          nauta: ['nauta'], naudan: ['nauta'], lammas: ['lammas'], lampaan: ['lammas'],
+          possu: ['possu'], possua: ['possu'], sika: ['possu'], kalkkuna: ['kalkkuna'], ankka: ['ankka'],
+        };
+        const synProteins = PROT_SYN[term] || PROT_SYN[stem] || null;
+        const matches = allProducts.filter(p => {
+          // 1) Pääproteiineista (synonyymit huomioiden)
+          if (synProteins && (p.proteiinit || []).some(pr => synProteins.includes(pr.toLowerCase()))) return true;
+          // 2) Ainesosaluettelosta (teksti)
+          const ain = (p.ainesosat || '').toLowerCase();
+          if (!ain) return false;
+          if (ain.includes(term)) return true;
+          if (stem.length >= 4 && ain.includes(stem)) return true;
+          // 3) Riista-yleistermi: etsi myös sana "riista" ainesosista
+          if ((term.startsWith('riista')) && ain.includes('riista')) return true;
+          return false;
+        });
         if (matches.length > 0) {
           const list = buildDirectProductResponse(matches, {});
           const sessionData = matches.slice(0, 8).map(p => ({
